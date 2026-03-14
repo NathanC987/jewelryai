@@ -27,7 +27,8 @@ The project solves two linked problems:
 
 ## Confirmed MVP Scope (Locked)
 - Jewelry type: Rings only.
-- Primary implementation path: Rough sketch -> refined 2D concept -> structured 3D model.
+- Primary implementation path: Prompt-first deterministic interpretation -> parametric template initialization -> structured 3D model.
+- Sketch upload path: Experimental seed path for secondary iteration and future fidelity track.
 - Runtime mode: Single-user local session.
 - Primary outputs: GLB for web visualization and STL for manufacturing export.
 - Interactive latency target: 200 ms to 1 s for selected edits.
@@ -40,8 +41,8 @@ The project solves two linked problems:
 ## Must-Have Functional Features
 1. Input to concept generation
 - Inputs discussed: text prompt, rough sketch, reference image.
-- MVP priority path is rough sketch first.
-- Output: clean, realistic jewelry concept image.
+- MVP priority path is text prompt first, interpreted into template-aware ring parameters.
+- Output: polished, editable ring initialized from template/style defaults.
 
 2. 2D to 3D generation
 - Generate structured 3D model suitable for rendering and export.

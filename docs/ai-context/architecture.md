@@ -17,9 +17,11 @@ Stack:
 - Three.js viewer
 
 Responsibilities:
-- Accept user input (MVP priority: sketch upload).
+- Accept user input (MVP priority: prompt-first ring generation).
+- Keep sketch upload available as an experimental seed flow.
 - Show interactive 3D model (GLB) with camera controls.
 - Expose editing controls for materials, gemstones, and key dimensions.
+- Require user confirmation for low-confidence extracted sketch features before seeded 3D generation.
 - Display cost estimate and manufacturability warnings.
 - Trigger export actions (GLB visualization artifact, STL manufacturing file).
 
@@ -54,6 +56,15 @@ Responsibilities:
 - Detect likely jewelry regions/components from 2D concept.
 - Produce structured extraction output for CAD construction.
 - Avoid relying on mesh segmentation alone as a sole strategy.
+- Evolve toward ring-specific feature prediction (stone shape, setting style, prong count, band profile) used by parametric CAD graph.
+- Hybrid refinement step in progress: sketch-derived feature priors now drive setting-height and coherent prong placement in procedural geometry.
+- Grounded-SAM scaffold provider now defines adapter boundaries:
+  - proposal adapter (GroundingDINO contract)
+  - segmentation adapter (SAM2 contract)
+  - feature head adapter (ring-feature prediction contract)
+
+Reference:
+- docs/ai-context/sketch-to-3d-strategy.md
 
 Example structured output (illustrative):
 ```json
@@ -69,9 +80,11 @@ Example structured output (illustrative):
 Stack discussed:
 - OpenCascade (kernel)
 - CadQuery (Python layer)
+- Internal/open reusable component library (assembly catalog)
 
 Responsibilities:
 - Build ring geometry from structured parameters.
+- Assemble ring models from reusable CAD components (band, setting, accents, stone/prong modules) selected from internal/open catalog.
 - Maintain component-aware graph for targeted edits.
 - Rebuild only affected nodes on changes (not full regeneration).
 - Produce exports required by MVP (GLB pipeline asset + STL manufacturing export).
@@ -134,6 +147,58 @@ Responsibilities:
 - Containerization: Docker
 - Orchestration for MVP: Docker Compose
 - Future scale path: Kubernetes (later phase)
+
+## Current Implemented Modules (Phase 0)
+- Backend gateway skeleton at apps/backend:
+  - FastAPI app bootstrap and versioned API prefix (/api/v1)
+  - Health route and placeholder projects route
+  - Ring routes for create/get/update and graph inspection in single-user local mode
+  - Sketch upload route with deterministic preprocessing into seed ring parameters
+  - Sketch analysis route exposing component detections and feature confidence outputs
+  - Sketch analysis grounded_sam real mode now executes GroundingDINO proposal inference with normalized/deduplicated component proposals and deterministic fallback when detections are unavailable
+  - GroundingDINO real inference tuning via settings: box threshold, text threshold, and local-files-only offline loading
+  - Feature-aware ring parameters (stone shape, prong count, band profile) in create/update flow
+  - Side-stone count promoted to first-class ring parameter, driven from sketch extraction and UI edits
+  - Setting-height promoted to first-class ring parameter and used to fit a coherent stone/prong assembly
+  - Benchmark route for required edit latency checks (material/gemstone size/type/band thickness)
+  - Ring variation route that generates style-based concept variants from a source ring for rapid exploration
+  - Export routes for GLB/STL artifact generation
+  - In-memory ring graph service with deterministic cost/manufacturability outputs
+  - Graph versioning and update diffs (changed fields + impacted components)
+  - Parameter-aware procedural export mesh (band, center stone, and prongs)
+  - Export mesh now responds to feature-level ring params (shape/profile/prong count/side-stone count/setting height)
+  - Prompt interpreter service and /rings/from-prompt endpoint for deterministic prompt-to-template initialization
+  - Open component library assembly path used by exporter to compose ring models from reusable parts
+  - Prompt interpretation now returns selected component recipe IDs for assembly transparency
+  - Export mesh now responds to template/style identity (solitaire/halo/pave/split-shank/three-stone + style tags)
+  - Prong geometry now uses coherent angled supports around the center stone instead of simple vertical pegs
+  - Export regeneration on each request to reflect latest ring parameter updates
+  - Structured request logging middleware
+  - Pytest smoke test setup
+- Frontend shell at apps/frontend:
+  - Next.js app router skeleton
+  - Three-panel layout scaffold (input/viewer/customization)
+  - Prompt-first ring generation workflow as default entry path
+  - Sketch upload input with local preview and backend ingestion trigger
+  - Sketch path retained as experimental seed mode
+  - Sketch analysis confidence panel for feature-level user confirmation
+  - Three.js viewer with backend GLB loading and placeholder fallback
+  - API-backed ring workbench control panel
+  - Prompt interpretation feedback panel (template/style/confidence)
+  - Ring creation seeded from extracted sketch parameters
+  - Ring creation from prompt-backed template interpretation
+  - Sketch feature confirmation workflow before seeding ring creation when confidence is low
+  - In-workbench generation of five style variations with one-click variant activation
+  - Live create/patch flow for metal, gemstone type/size, and band thickness
+  - Backend-origin artifact URL handling for viewer and export links
+- Shared contracts at packages/shared-schemas:
+  - ring-parameters schema for material/gemstone/size edits
+- Root orchestration:
+  - docker-compose baseline for backend and frontend services
+  - Makefile command shortcuts for run/test/lint
+
+- Artifact serving:
+  - Backend mounts static /artifacts path for generated export retrieval.
 
 ## Architecture Rules to Preserve
 - No full AI regeneration per small edit.

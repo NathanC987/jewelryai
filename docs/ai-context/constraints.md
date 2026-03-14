@@ -35,6 +35,8 @@
 - Do not implement all features at once.
 - Build in smaller well-defined tasks with validation at each stage.
 - Keep codebase modular and expandable for future features.
+- Immediate release path is prompt-first deterministic interpretation into parametric templates.
+- Sketch-to-3D fidelity improvements continue as an experimental secondary track.
 
 ## Architecture Constraints (Must Preserve)
 - Component-aware parametric model is mandatory.
