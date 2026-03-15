@@ -2,6 +2,10 @@
 
 Modular MVP for AI-assisted ring generation and real-time customization.
 
+## Team and Problem Statement
+- Team Name: YoungMonks
+- PS Title: AI-Driven 2D to 3D Jewelry Generation with Real-Time Customization (PS-01)
+
 ## Repository Layout
 - apps/backend: FastAPI gateway and orchestration skeleton
 - apps/frontend: Next.js UI and viewer shell
