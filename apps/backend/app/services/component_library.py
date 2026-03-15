@@ -301,8 +301,11 @@ class OpenComponentLibrary:
 
         scale_xy = target_width / width
         scale_z = target_height / height
+        # Preserve proportions and avoid shrinking settings to satisfy height fit.
+        # Width is minimum desired size; taller setting requests can still scale up.
+        scale_uniform = max(scale_xy, scale_z)
         scaled_reference = reference.copy()
-        scaled_reference.apply_scale((scale_xy, scale_xy, scale_z))
+        scaled_reference.apply_scale((scale_uniform, scale_uniform, scale_uniform))
         center = scaled_reference.bounding_box.centroid
         scaled_reference.apply_translation((-center[0], -center[1], -center[2]))
 
@@ -313,13 +316,14 @@ class OpenComponentLibrary:
         max_abs_x = max(abs(float(aligned_bounds[0][0])), abs(float(aligned_bounds[1][0])), 1e-6)
 
         target_base_z = (
-            shank_top_z + context.band_thickness_mm * 0.04
+            shank_top_z - context.band_thickness_mm * 1.71
             if shank_top_z is not None
             else band_height * 0.56
         )
         delta_z = target_base_z - min_z
 
-        # Anchor the rear of the setting slightly behind the shank top arc.
+        # Keep the setting aligned around the shank crown in-ring axis (Y).
+        # Visual "behind" adjustment is applied in Z (depth) above.
         mount_plane_y = (
             shank_mount_plane_y - context.band_thickness_mm * 0.32
             if shank_mount_plane_y is not None
@@ -328,7 +332,7 @@ class OpenComponentLibrary:
         delta_y = mount_plane_y - min_y
 
         transform = np.eye(4)
-        transform[:3, :3] = np.diag([scale_xy, scale_xy, scale_z])
+        transform[:3, :3] = np.diag([scale_uniform, scale_uniform, scale_uniform])
         transform[:3, 3] = np.array([-center[0], -center[1] + delta_y, -center[2] + delta_z])
 
         x_center = float(scaled_reference.bounding_box.centroid[0])
