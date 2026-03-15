@@ -349,16 +349,6 @@ class OpenComponentLibrary:
 
         return fitted_meshes
 
-    def _normalize_local_shank_orientation(self, mesh: trimesh.Trimesh) -> trimesh.Trimesh:
-        # Source GLBs are authored in the expected orientation.
-        # Do not auto-remap axes, as this can rotate shanks incorrectly.
-        return mesh.copy()
-
-    def _normalize_local_setting_orientation(self, mesh: trimesh.Trimesh) -> trimesh.Trimesh:
-        # Source GLBs are authored in the expected orientation.
-        # Do not auto-remap axes, as this can rotate settings incorrectly.
-        return mesh.copy()
-
     def _resolve_component_ids(self, context: AssemblyContext) -> list[str]:
         band_component = self.band_components.get(context.band_profile, "band.classic")
         setting_component = self.setting_components.get(context.template_id, "setting.solitaire")
@@ -713,15 +703,6 @@ def _build_prongs(
         prongs.append(tip)
 
     return prongs
-
-
-def _axis_remap_transform(order: tuple[int, int, int]) -> np.ndarray:
-    transform = np.eye(4)
-    transform[:3, :3] = 0.0
-    for target_axis, source_axis in enumerate(order):
-        transform[target_axis, source_axis] = 1.0
-    return transform
-
 
 def _apply_gemstone_material_shape_hint(stone: trimesh.Trimesh, gemstone_type: str) -> None:
     if gemstone_type == "emerald":

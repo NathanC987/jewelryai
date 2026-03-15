@@ -19,7 +19,6 @@ Modular MVP for AI-assisted ring generation and real-time customization.
 - Shared ring parameter schema added.
 - Sketch upload to feature-aware ring seed flow is implemented.
 - Ring create/update/export loop with live GLB refresh and STL output is implemented.
-- Rule-based style variation generation (5 presets) is implemented for rapid concept exploration.
 
 ## Run (Local, no Docker)
 Backend:
@@ -60,9 +59,8 @@ Fast demo readiness check:
 2. Upload one sketch and create ring from extracted parameters.
 3. Confirm extracted sketch features (especially low-confidence fields) before creating the seeded ring.
 4. Perform required live edits: metal, gemstone type/size, band thickness, shape/prong/profile, and side stone count.
-5. Generate style variations and activate at least one variant.
-6. Export GLB and STL from chosen design.
-7. Run make demo-check before final push.
+5. Export GLB and STL from chosen design.
+6. Run make demo-check before final push.
 
 ## Important Project Context
 Read these files first before significant work:

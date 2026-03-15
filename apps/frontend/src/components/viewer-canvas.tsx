@@ -12,9 +12,13 @@ type ViewerCanvasProps = {
     metal: "gold" | "rose_gold" | "platinum" | "silver";
     gemstone_type: "diamond" | "ruby" | "emerald" | "sapphire";
   } | null;
+  ringSummary: {
+    estimatedPriceUsd: number;
+    manufacturabilityWarnings: { code: string; message: string }[];
+  } | null;
 };
 
-export function ViewerCanvas({ modelUrl, ringParameters }: ViewerCanvasProps) {
+export function ViewerCanvas({ modelUrl, ringParameters, ringSummary }: ViewerCanvasProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const activeRootRef = useRef<THREE.Object3D | null>(null);
 
@@ -276,30 +280,6 @@ export function ViewerCanvas({ modelUrl, ringParameters }: ViewerCanvasProps) {
         }
       }
 
-      console.info("[viewer] material-assign", {
-        gemstoneType: ringParameters?.gemstone_type,
-        metalType: ringParameters?.metal,
-        meshCount: meshes.length,
-        settingMeshCount: settingMeshes.length,
-        gemMeshCount: gemLikeMeshes.size,
-        meshSummary: meshes.map((mesh) => {
-          const source = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-          const box = new THREE.Box3().setFromObject(mesh);
-          const size = box.getSize(new THREE.Vector3());
-          return {
-            name: mesh.name,
-            verts: mesh.geometry.attributes.position.count,
-            isGemLike: gemLikeMeshes.has(mesh),
-            size: [
-              Number(size.x.toFixed(3)),
-              Number(size.y.toFixed(3)),
-              Number(size.z.toFixed(3)),
-            ],
-            hint: buildHint(mesh, source ?? undefined),
-          };
-        }),
-      });
-
       for (const mesh of meshes) {
         const isGemLike = gemLikeMeshes.has(mesh);
         if (Array.isArray(mesh.material)) {
@@ -382,5 +362,24 @@ export function ViewerCanvas({ modelUrl, ringParameters }: ViewerCanvasProps) {
     };
   }, [modelUrl, ringParameters]);
 
-  return <div className="viewer-canvas" ref={mountRef} />;
+  return (
+    <div className="viewer-canvas-shell">
+      <div className="viewer-canvas" ref={mountRef} />
+      {ringSummary ? (
+        <>
+          <div className="viewer-overlay viewer-overlay-price">
+            <span className="viewer-overlay-label">Estimated Price</span>
+            <strong>${ringSummary.estimatedPriceUsd.toFixed(2)}</strong>
+          </div>
+          {ringSummary.manufacturabilityWarnings.length > 0 ? (
+            <div className="viewer-overlay viewer-overlay-warnings" role="status" aria-live="polite">
+              {ringSummary.manufacturabilityWarnings.map((warning) => (
+                <p key={warning.code}>{warning.message}</p>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
 }

@@ -41,11 +41,6 @@ FastAPI gateway for MVP orchestration.
    - SAM2_CHECKPOINT_PATH=/path/to/checkpoint
 - API contracts remain unchanged when switching providers.
 
-## Design Variations (Style Presets)
-- Generate five style concepts from an existing ring:
-   - curl -X POST "http://localhost:8000/api/v1/rings/{ring_id}/variations?count=5"
-- Response returns style-labeled suggestions with full ring states that can be directly activated in the frontend workbench.
-
 ## Prompt-First Ring Generation (Default)
 - Generate a ring directly from a design prompt:
    - curl -X POST "http://localhost:8000/api/v1/rings/from-prompt" -H "Content-Type: application/json" -d '{"prompt":"A vintage oval halo ruby ring in rose gold"}'

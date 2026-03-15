@@ -40,7 +40,6 @@ Progress snapshot (2026-03-13):
 	- Added grounded_sam adapter pipeline scaffolding (proposal/segmentation/feature-head contracts) with test coverage.
 	- Added real-mode adapter wiring path and config toggles, with safe fallback behavior when runtime/model assets are unavailable.
 	- GroundingDINO real-mode proposal inference now executes in adapter pipeline with normalized/deduplicated component outputs and deterministic fallback.
-	- Rule-based design variation generator added with five style presets and frontend activation workflow.
 	- Viewer controls and UI polish improved with interactive orbit controls and neutral monochrome styling.
 	- Shared ring parameter JSON schema and root run/test commands.
 - Next in sequence:
@@ -73,17 +72,13 @@ Goals:
 - Expand test coverage for geometry validity and API reliability.
 
 ## Phase 3: High-Impact Extras (Prioritized)
-1. Design variations generator
-- Implement rule-based parametric generation of 5 variants.
- - Status: Completed in MVP demo path.
-
-2. Style presets
+1. Style presets
 - Add style transforms through parameter sets (minimalist, vintage, royal, etc.).
 
-3. Catalog image generation
+2. Catalog image generation
 - Add predefined render scenes/background pipelines.
 
-4. Manufacturability rule expansion
+3. Manufacturability rule expansion
 - Add richer checks and clearer diagnostics.
 
 ## Phase 4: Extended Input and Output Coverage

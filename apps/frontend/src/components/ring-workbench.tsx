@@ -33,17 +33,7 @@ type RingState = {
 
 type RingParameters = RingState["parameters"];
 
-type PromptInterpretation = {
-  normalized_prompt: string;
-  template_id: RingState["parameters"]["template_id"];
-  style_tag: RingState["parameters"]["style_tag"];
-  selected_components: string[];
-  confidence: number;
-  notes: string;
-};
-
 type PromptRingResponse = {
-  interpretation: PromptInterpretation;
   ring: RingState;
 };
 
@@ -54,6 +44,14 @@ const backendBase = apiBase.replace(/\/api\/v1\/?$/, "");
 type RingWorkbenchProps = {
   onViewerModelUrlChange: (modelUrl: string | null) => void;
   onRingParametersChange?: (parameters: RingParameters | null) => void;
+  onRingSummaryChange?: (
+    summary:
+      | {
+          estimatedPriceUsd: number;
+          manufacturabilityWarnings: { code: string; message: string }[];
+        }
+      | null
+  ) => void;
   initialParameters?: Partial<RingParameters> | null;
   prompt: string;
   onPromptChange: (prompt: string) => void;
@@ -63,6 +61,7 @@ type RingWorkbenchProps = {
 export function RingWorkbench({
   onViewerModelUrlChange,
   onRingParametersChange,
+  onRingSummaryChange,
   initialParameters,
   prompt,
   onPromptChange,
@@ -70,8 +69,6 @@ export function RingWorkbench({
 }: RingWorkbenchProps) {
   const [ring, setRing] = useState<RingState | null>(null);
   const [changePrompt, setChangePrompt] = useState("");
-  const [interpretation, setInterpretation] = useState<PromptInterpretation | null>(null);
-  const [exportLinks, setExportLinks] = useState<{ glb?: string; stl?: string }>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const safePrompt = prompt ?? "";
@@ -95,7 +92,6 @@ export function RingWorkbench({
 
     const exportResult = await response.json();
     const absoluteUrl = toAbsoluteArtifactUrl(exportResult.artifact_uri);
-    setExportLinks((prev) => ({ ...prev, glb: absoluteUrl }));
     onViewerModelUrlChange(withCacheBust(absoluteUrl));
   }
 
@@ -113,7 +109,6 @@ export function RingWorkbench({
       }
       const created = await response.json();
       setRing(created);
-      setInterpretation(null);
       await refreshViewerModel(created.ring_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -136,7 +131,6 @@ export function RingWorkbench({
       }
 
       const payload: PromptRingResponse = await response.json();
-      setInterpretation(payload.interpretation);
       setRing(payload.ring);
       await refreshViewerModel(payload.ring.ring_id);
     } catch (err) {
@@ -209,6 +203,17 @@ export function RingWorkbench({
   }, [onRingParametersChange, ring?.parameters]);
 
   useEffect(() => {
+    onRingSummaryChange?.(
+      ring
+        ? {
+            estimatedPriceUsd: ring.cost_estimate.estimated_price_usd,
+            manufacturabilityWarnings: ring.manufacturability_warnings,
+          }
+        : null
+    );
+  }, [onRingSummaryChange, ring]);
+
+  useEffect(() => {
     const handler = () => {
       void createRingFromPrompt();
     };
@@ -216,7 +221,7 @@ export function RingWorkbench({
     return () => window.removeEventListener("ring-generate-from-prompt", handler);
   });
 
-  async function requestExport(format: "glb" | "stl") {
+  async function exportAndDownload(format: "glb" | "stl") {
     if (!ring) {
       return;
     }
@@ -231,10 +236,20 @@ export function RingWorkbench({
 
       const result = await response.json();
       const absoluteUrl = toAbsoluteArtifactUrl(result.artifact_uri);
-      setExportLinks((prev) => ({ ...prev, [format]: absoluteUrl }));
-      if (format === "glb") {
-        onViewerModelUrlChange(withCacheBust(absoluteUrl));
+      const fileResponse = await fetch(absoluteUrl);
+      if (!fileResponse.ok) {
+        throw new Error(`Download failed: ${fileResponse.status}`);
       }
+
+      const fileBlob = await fileResponse.blob();
+      const objectUrl = URL.createObjectURL(fileBlob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `ring-${ring.ring_id}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -244,42 +259,45 @@ export function RingWorkbench({
 
   return (
     <div className="workbench">
-      <div className="result">
-        <p><strong>Prompt-First Designer</strong></p>
-        <p className="muted">Describe the ring you want. This is the default generation path.</p>
-        {!hidePromptComposer ? (
-          <>
-            <label>
-              Design Prompt
-              <input
-                type="text"
-                disabled={loading}
-                value={safePrompt}
-                onChange={(e) => onPromptChange(e.target.value)}
-              />
-            </label>
-            <div className="export-row">
-              <button onClick={createRingFromPrompt} disabled={loading || safePrompt.trim().length < 3}>
-                {ring ? "Regenerate From Prompt" : "Generate From Prompt"}
-              </button>
-              <button onClick={createRing} disabled={loading}>
-                Create From Seeded Parameters
-              </button>
-            </div>
-          </>
-        ) : (
-          <p className="muted">Use the left panel prompt box to generate and regenerate rings.</p>
-        )}
-      </div>
+      <section className="change-prompt-card">
+        <h3>Quick Change Prompt</h3>
+        <p className="muted">Describe the update you want and apply it instantly to the current jewelry piece.</p>
+        <label className="change-prompt-label">
+          <textarea
+            disabled={!canEdit || loading}
+            value={changePrompt}
+            onChange={(e) => setChangePrompt(e.target.value)}
+            rows={4}
+            placeholder="e.g. switch to marquise bezel with cathedral shank"
+          />
+        </label>
+        <button
+          disabled={!canEdit || loading || changePrompt.trim().length < 2}
+          onClick={() => void applyChangePrompt()}
+        >
+          Apply Change Prompt
+        </button>
+      </section>
 
-      {interpretation ? (
+      {!hidePromptComposer ? (
         <div className="result">
-          <p><strong>Prompt Interpretation</strong></p>
-          <p>Template: {interpretation.template_id.replace(/_/g, " ")}</p>
-          <p>Style: {interpretation.style_tag}</p>
-          <p>Components: {interpretation.selected_components.join(" | ")}</p>
-          <p>Confidence: {(interpretation.confidence * 100).toFixed(0)}%</p>
-          <p className="muted">{interpretation.notes}</p>
+          <label>
+            Design Prompt
+            <input
+              type="text"
+              disabled={loading}
+              value={safePrompt}
+              onChange={(e) => onPromptChange(e.target.value)}
+            />
+          </label>
+          <div className="export-row">
+            <button onClick={createRingFromPrompt} disabled={loading || safePrompt.trim().length < 3}>
+              {ring ? "Regenerate From Prompt" : "Generate From Prompt"}
+            </button>
+            <button onClick={createRing} disabled={loading}>
+              Create From Seeded Parameters
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -481,59 +499,15 @@ export function RingWorkbench({
       {error ? <p className="error">{error}</p> : null}
 
       {ring ? (
-        <div className="result">
-          <p>
-            Estimated Price: ${ring.cost_estimate.estimated_price_usd.toFixed(2)}
-          </p>
-          <p>
-            Metal Weight: {ring.cost_estimate.metal_weight_g}g | Gemstone: {" "}
-            {ring.cost_estimate.gemstone_carat}ct
-          </p>
-          <p>
-            Shape: {ring.parameters.center_stone_shape.replace("_", " ")} | Prongs: {ring.parameters.prong_count} | Side Stones: {ring.parameters.side_stone_count} | Profile: {ring.parameters.band_profile.replace("_", " ")} | Setting: {ring.parameters.setting_family} {ring.parameters.setting_variant}
-          </p>
-          <p>
-            Template: {ring.parameters.template_id.replace(/_/g, " ")} | Style: {ring.parameters.style_tag} | Shank: {ring.parameters.shank_family} {ring.parameters.shank_variant}
-          </p>
-          <p>GLB URI: {ring.glb_asset_uri}</p>
-          <div className="export-row">
-            <button disabled={loading} onClick={() => requestExport("glb")}>Request GLB Export</button>
-            <button disabled={loading} onClick={() => requestExport("stl")}>Request STL Export</button>
+        <div className="export-section">
+          <p><strong>Exports</strong></p>
+          <div className="export-row export-row-vertical">
+            <button disabled={!canEdit || loading} onClick={() => exportAndDownload("glb")}>Export GLB</button>
+            <button disabled={!canEdit || loading} onClick={() => exportAndDownload("stl")}>Export STL</button>
           </div>
-          <div className="result">
-            <p><strong>Change Prompt</strong></p>
-            <p className="muted">Use natural text to swap shape, setting, shank, prongs, gemstone, or metal.</p>
-            <label>
-              e.g. switch to marquise bezel open heart with cathedral shank 10 and 6 prongs
-              <input
-                type="text"
-                disabled={!canEdit || loading}
-                value={changePrompt}
-                onChange={(e) => setChangePrompt(e.target.value)}
-              />
-            </label>
-            <button
-              disabled={!canEdit || loading || changePrompt.trim().length < 2}
-              onClick={() => void applyChangePrompt()}
-            >
-              Apply Change Prompt
-            </button>
-          </div>
-          {exportLinks.glb ? <p>GLB Export: {exportLinks.glb}</p> : null}
-          {exportLinks.stl ? <p>STL Export: {exportLinks.stl}</p> : null}
-          {ring.manufacturability_warnings.length > 0 ? (
-            <ul>
-              {ring.manufacturability_warnings.map((warning) => (
-                <li key={warning.code}>{warning.message}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>No manufacturability warnings.</p>
-          )}
-
         </div>
       ) : (
-        <p className="muted">Create a ring to enable customization.</p>
+        <p className="muted">Create a jewelry to enable customization.</p>
       )}
     </div>
   );

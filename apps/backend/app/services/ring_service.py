@@ -10,8 +10,6 @@ from app.domain.ring import (
     ManufacturabilityWarning,
     RingGraph,
     RingGraphResponse,
-    RingVariationSetResponse,
-    RingVariationSuggestionResponse,
     RingParameters,
     RingStateResponse,
     RingUpdateDiff,
@@ -228,31 +226,6 @@ class RingService:
             per_operation=per_operation,
         )
 
-    def generate_variations(
-        self,
-        ring_id: str,
-        count: int = 5,
-    ) -> RingVariationSetResponse | None:
-        source = self._store.get(ring_id)
-        if not source:
-            return None
-
-        presets = _variation_presets()
-        suggestions: list[RingVariationSuggestionResponse] = []
-        for index in range(min(count, len(presets))):
-            preset = presets[index]
-            variation_parameters = _apply_variation_preset(source.parameters, preset)
-            variation_state = self.create_ring(parameters=variation_parameters)
-            suggestions.append(
-                RingVariationSuggestionResponse(
-                    style_name=preset["name"],
-                    summary=preset["summary"],
-                    ring=variation_state,
-                )
-            )
-
-        return RingVariationSetResponse(source_ring_id=ring_id, suggestions=suggestions)
-
     def _to_response(
         self,
         graph: RingGraph,
@@ -360,110 +333,4 @@ def _build_default_edges() -> list[ComponentEdge]:
             source_node_id="prongs", target_node_id="center_stone", relation="supports"
         ),
     ]
-
-
-def _variation_presets() -> list[dict[str, str | float | int]]:
-    return [
-        {
-            "name": "Minimalist",
-            "summary": "Clean silhouette with thinner band and restrained prong setting.",
-            "metal": "platinum",
-            "gemstone_type": "diamond",
-            "center_stone_shape": "round",
-            "band_profile": "flat",
-            "prong_count": 4,
-            "gem_scale": 0.92,
-            "band_delta": -0.25,
-            "setting_height": 1.35,
-        },
-        {
-            "name": "Vintage",
-            "summary": "Warmer tone, softened profile, and slightly larger center stone.",
-            "metal": "rose_gold",
-            "gemstone_type": "emerald",
-            "center_stone_shape": "oval",
-            "band_profile": "classic",
-            "prong_count": 6,
-            "gem_scale": 1.08,
-            "band_delta": 0.15,
-            "setting_height": 1.95,
-        },
-        {
-            "name": "Royal",
-            "summary": "Statement look with larger gemstone and high-support prong structure.",
-            "metal": "gold",
-            "gemstone_type": "sapphire",
-            "center_stone_shape": "emerald_cut",
-            "band_profile": "tapered",
-            "prong_count": 6,
-            "gem_scale": 1.18,
-            "band_delta": 0.35,
-            "setting_height": 2.35,
-        },
-        {
-            "name": "Modern",
-            "summary": "Contemporary geometry with sharp profile and balanced proportions.",
-            "metal": "silver",
-            "gemstone_type": "diamond",
-            "center_stone_shape": "princess",
-            "band_profile": "knife_edge",
-            "prong_count": 4,
-            "gem_scale": 1.0,
-            "band_delta": 0.1,
-            "setting_height": 1.75,
-        },
-        {
-            "name": "Bold",
-            "summary": "High-impact variant optimized for visual pop in demos and previews.",
-            "metal": "gold",
-            "gemstone_type": "ruby",
-            "center_stone_shape": "marquise",
-            "band_profile": "tapered",
-            "prong_count": 8,
-            "gem_scale": 1.22,
-            "band_delta": 0.45,
-            "setting_height": 2.55,
-        },
-    ]
-
-
-def _apply_variation_preset(
-    base: RingParameters,
-    preset: dict[str, str | float | int],
-) -> RingParameters:
-    gemstone_size_mm = _clamp_float(
-        base.gemstone_size_mm * float(preset["gem_scale"]),
-        minimum=1.0,
-        maximum=12.0,
-    )
-    band_thickness_mm = _clamp_float(
-        base.band_thickness_mm + float(preset["band_delta"]),
-        minimum=1.2,
-        maximum=5.0,
-    )
-
-    return RingParameters(
-        template_id=base.template_id,
-        style_tag=base.style_tag,
-        metal=str(preset["metal"]),
-        gemstone_type=str(preset["gemstone_type"]),
-        center_stone_shape=str(preset["center_stone_shape"]),
-        prong_count=int(preset["prong_count"]),
-        band_profile=str(preset["band_profile"]),
-        side_stone_count=base.side_stone_count,
-        setting_family=base.setting_family,
-        setting_variant=base.setting_variant,
-        setting_openheart=base.setting_openheart,
-        shank_family=base.shank_family,
-        shank_variant=base.shank_variant,
-        setting_height_mm=round(_clamp_float(float(preset["setting_height"]), minimum=0.6, maximum=5.0), 2),
-        gemstone_size_mm=round(gemstone_size_mm, 2),
-        band_thickness_mm=round(band_thickness_mm, 2),
-    )
-
-
-def _clamp_float(value: float, minimum: float, maximum: float) -> float:
-    return max(minimum, min(maximum, value))
-
-
 ring_service = RingService()

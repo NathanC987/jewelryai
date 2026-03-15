@@ -14,6 +14,10 @@ export default function HomePage() {
     metal: "gold" | "rose_gold" | "platinum" | "silver";
     gemstone_type: "diamond" | "ruby" | "emerald" | "sapphire";
   } | null>(null);
+  const [ringSummary, setRingSummary] = useState<{
+    estimatedPriceUsd: number;
+    manufacturabilityWarnings: { code: string; message: string }[];
+  } | null>(null);
 
   useEffect(() => {
     return () => {
@@ -45,12 +49,12 @@ export default function HomePage() {
   return (
     <main className="page">
       <aside className="left-panel">
-        <h2>Design Prompt</h2>
+        <h2>Design Options</h2>
         <p className="muted">
-          Describe the ring style and components you want. Generation will create the base ring in the center canvas.
+          Upload a 2D sketch of your design or describe the jewelry design you want.
         </p>
         <label className="upload-label">
-          <span>Upload 2D Sketch (Show Only)</span>
+          <span>Upload 2D Sketch</span>
           <input
             type="file"
             accept="image/png,image/jpeg,image/webp"
@@ -63,35 +67,33 @@ export default function HomePage() {
             <img className="sketch-preview" src={sketchPreviewUrl} alt="Uploaded 2D sketch preview" />
           </div>
         ) : null}
-        <p className="muted">
-          Sketch upload is for presentation only. The ring model is still generated from the prompt.
-        </p>
-        <label className="upload-label">
+        <label className="upload-label prompt-label">
           <span>Prompt</span>
-          <input
-            type="text"
+          <textarea
+            className="left-prompt-input"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            rows={4}
+            placeholder="e.g. Vintage oval ruby ring with cathedral shank and halo accents"
           />
         </label>
-        <div className="export-row">
-          <button onClick={triggerPromptGeneration} disabled={prompt.trim().length < 3}>
-            Generate Ring
+        <div className="left-panel-actions">
+          <button className="left-generate-btn" onClick={triggerPromptGeneration} disabled={prompt.trim().length < 3}>
+            Generate Jewelry
           </button>
         </div>
         <p className="muted">After generation, use the right panel to tweak components and apply change prompts.</p>
       </aside>
 
-      <section className="viewer">
-        <h1>JewelryAI MVP</h1>
-        <p className="muted">Live canvas with immediate refresh on each customization change.</p>
-        <ViewerCanvas modelUrl={modelUrl} ringParameters={ringParameters} />
+      <section className="viewer viewer-canvas-only">
+        <ViewerCanvas modelUrl={modelUrl} ringParameters={ringParameters} ringSummary={ringSummary} />
       </section>
 
       <aside className="right-panel">
         <RingWorkbench
           onViewerModelUrlChange={setModelUrl}
           onRingParametersChange={setRingParameters}
+          onRingSummaryChange={setRingSummary}
           initialParameters={null}
           prompt={prompt}
           onPromptChange={setPrompt}

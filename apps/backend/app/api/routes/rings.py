@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 
 from app.domain.ring import (
     RingChangePromptRequest,
@@ -7,7 +7,6 @@ from app.domain.ring import (
     RingGraphResponse,
     RingParameters,
     RingStateResponse,
-    RingVariationSetResponse,
     RingUpdateRequest,
 )
 from app.services.prompt_interpreter import prompt_interpreter_service
@@ -65,12 +64,3 @@ def patch_ring(ring_id: str, update: RingUpdateRequest) -> RingStateResponse:
     return state
 
 
-@router.post("/{ring_id}/variations", response_model=RingVariationSetResponse)
-def generate_ring_variations(
-    ring_id: str,
-    count: int = Query(default=5, ge=1, le=5),
-) -> RingVariationSetResponse:
-    variations = ring_service.generate_variations(ring_id, count=count)
-    if not variations:
-        raise HTTPException(status_code=404, detail="Ring not found")
-    return variations

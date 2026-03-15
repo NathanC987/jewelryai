@@ -113,3 +113,7 @@
 ### D-028: Adopt internal/open component library assembly path
 - Decision: Implement exporter-side assembly from an internal/open reusable component catalog (bands, settings, accents, stones/prongs) instead of relying on a single monolithic procedural generator.
 - Reason: Improves output consistency and aesthetic coherence while keeping the architecture license-safe, offline-capable, and compatible with localized parametric edits.
+
+### D-029: Remove variation endpoint and UI path from active MVP surface
+- Decision: Remove backend variation generation endpoint/contracts and legacy frontend variation UI styles from active code paths.
+- Reason: Keeps the ring workbench focused on deterministic prompt-first generation plus low-latency component edits, reducing maintenance overhead and avoiding dead/demo-only branches in the release flow.

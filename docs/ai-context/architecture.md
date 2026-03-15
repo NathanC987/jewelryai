@@ -161,7 +161,6 @@ Responsibilities:
   - Side-stone count promoted to first-class ring parameter, driven from sketch extraction and UI edits
   - Setting-height promoted to first-class ring parameter and used to fit a coherent stone/prong assembly
   - Benchmark route for required edit latency checks (material/gemstone size/type/band thickness)
-  - Ring variation route that generates style-based concept variants from a source ring for rapid exploration
   - Export routes for GLB/STL artifact generation
   - In-memory ring graph service with deterministic cost/manufacturability outputs
   - Graph versioning and update diffs (changed fields + impacted components)
@@ -191,7 +190,6 @@ Responsibilities:
   - Ring creation seeded from extracted sketch parameters
   - Ring creation from prompt-backed template interpretation
   - Sketch feature confirmation workflow before seeding ring creation when confidence is low
-  - In-workbench generation of five style variations with one-click variant activation
   - Live create/patch flow for metal, gemstone type/size, and band thickness
   - Backend-origin artifact URL handling for viewer and export links
 - Shared contracts at packages/shared-schemas:

@@ -110,17 +110,6 @@ class RingStateResponse(BaseModel):
     glb_asset_uri: str
 
 
-class RingVariationSuggestionResponse(BaseModel):
-    style_name: str
-    summary: str
-    ring: RingStateResponse
-
-
-class RingVariationSetResponse(BaseModel):
-    source_ring_id: str
-    suggestions: list[RingVariationSuggestionResponse]
-
-
 class RingGraphResponse(BaseModel):
     ring_id: str
     version: int
