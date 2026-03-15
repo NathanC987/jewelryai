@@ -12,6 +12,11 @@ def test_open_component_library_assembles_halo_ring() -> None:
         center_stone_shape="oval",
         prong_count=6,
         side_stone_count=14,
+        setting_family="halo",
+        setting_variant=15,
+        setting_openheart=False,
+        shank_family="cathedral",
+        shank_variant=3,
         setting_height_mm=2.2,
     )
 
@@ -32,6 +37,11 @@ def test_open_component_library_assembles_three_stone_ring() -> None:
         center_stone_shape="round",
         prong_count=4,
         side_stone_count=2,
+        setting_family="basket",
+        setting_variant=4,
+        setting_openheart=False,
+        shank_family="classic",
+        shank_variant=4,
         setting_height_mm=2.0,
     )
 
@@ -52,6 +62,11 @@ def test_open_component_library_selected_components_include_style_recipe() -> No
         center_stone_shape="round",
         prong_count=6,
         side_stone_count=0,
+        setting_family="peghead",
+        setting_variant=4,
+        setting_openheart=False,
+        shank_family="cathedral",
+        shank_variant=10,
         setting_height_mm=2.4,
     )
 
@@ -72,6 +87,11 @@ def test_solitaire_setting_height_changes_vertical_extent() -> None:
         center_stone_shape="round",
         prong_count=4,
         side_stone_count=0,
+        setting_family="peghead",
+        setting_variant=4,
+        setting_openheart=False,
+        shank_family="classic",
+        shank_variant=1,
         setting_height_mm=1.2,
     )
     tall_context = AssemblyContext(
@@ -84,6 +104,11 @@ def test_solitaire_setting_height_changes_vertical_extent() -> None:
         center_stone_shape="round",
         prong_count=4,
         side_stone_count=0,
+        setting_family="peghead",
+        setting_variant=4,
+        setting_openheart=False,
+        shank_family="classic",
+        shank_variant=1,
         setting_height_mm=3.2,
     )
 
@@ -95,7 +120,7 @@ def test_solitaire_setting_height_changes_vertical_extent() -> None:
     assert tall_height > base_height
 
 
-def test_solitaire_side_stones_increase_volume() -> None:
+def test_solitaire_side_stones_do_not_add_nonlocal_geometry() -> None:
     clean_context = AssemblyContext(
         template_id="solitaire_ring",
         style_tag="modern",
@@ -106,6 +131,11 @@ def test_solitaire_side_stones_increase_volume() -> None:
         center_stone_shape="round",
         prong_count=4,
         side_stone_count=0,
+        setting_family="peghead",
+        setting_variant=4,
+        setting_openheart=False,
+        shank_family="classic",
+        shank_variant=1,
         setting_height_mm=2.0,
     )
     detailed_context = AssemblyContext(
@@ -118,10 +148,15 @@ def test_solitaire_side_stones_increase_volume() -> None:
         center_stone_shape="round",
         prong_count=4,
         side_stone_count=6,
+        setting_family="peghead",
+        setting_variant=4,
+        setting_openheart=False,
+        shank_family="classic",
+        shank_variant=1,
         setting_height_mm=2.0,
     )
 
     clean_mesh = open_component_library.assemble_ring(clean_context)
     detailed_mesh = open_component_library.assemble_ring(detailed_context)
 
-    assert float(detailed_mesh.volume) > float(clean_mesh.volume)
+    assert float(detailed_mesh.volume) == float(clean_mesh.volume)

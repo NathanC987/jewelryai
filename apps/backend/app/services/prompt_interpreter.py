@@ -1,6 +1,9 @@
 from app.domain.ring import (
     PromptInterpretationResponse,
     RingParameters,
+    RingUpdateRequest,
+    SettingFamily,
+    ShankFamily,
     TemplateId,
     StyleTag,
 )
@@ -18,12 +21,22 @@ class PromptInterpreterService:
         metal = self._infer_metal(normalized)
         gemstone_type = self._infer_gemstone(normalized)
         center_shape = self._infer_shape(normalized)
+        setting_family = self._infer_setting_family(normalized)
+        setting_variant = self._infer_setting_variant(normalized)
+        setting_openheart = self._infer_openheart(normalized)
+        shank_family = self._infer_shank_family(normalized, template_id)
+        shank_variant = self._infer_shank_variant(normalized)
 
         parameters = self._template_defaults(template_id)
         parameters.style_tag = style_tag
         parameters.metal = metal
         parameters.gemstone_type = gemstone_type
         parameters.center_stone_shape = center_shape
+        parameters.setting_family = setting_family
+        parameters.setting_variant = setting_variant
+        parameters.setting_openheart = setting_openheart
+        parameters.shank_family = shank_family
+        parameters.shank_variant = shank_variant
 
         # Style remaps adjust proportions while keeping template topology stable.
         self._apply_style_remap(parameters, style_tag)
@@ -39,6 +52,11 @@ class PromptInterpreterService:
                 center_stone_shape=parameters.center_stone_shape,
                 prong_count=parameters.prong_count,
                 side_stone_count=parameters.side_stone_count,
+                setting_family=parameters.setting_family,
+                setting_variant=parameters.setting_variant,
+                setting_openheart=parameters.setting_openheart,
+                shank_family=parameters.shank_family,
+                shank_variant=parameters.shank_variant,
                 setting_height_mm=parameters.setting_height_mm,
             )
         )
@@ -53,6 +71,48 @@ class PromptInterpreterService:
             notes="Deterministic prompt interpreter selected template and parameters.",
         )
         return interpretation, parameters
+
+    def interpret_change_prompt(self, prompt: str, current: RingParameters) -> RingUpdateRequest:
+        normalized = " ".join(prompt.strip().lower().split())
+        update = RingUpdateRequest()
+
+        if any(token in normalized for token in ("round", "oval", "princess", "emerald cut", "emerald-cut", "marquise", "pear", "teardrop")):
+            update.center_stone_shape = self._infer_shape(normalized)
+
+        if any(token in normalized for token in ("gold", "rose gold", "platinum", "silver")):
+            update.metal = self._infer_metal(normalized)
+
+        if any(token in normalized for token in ("diamond", "ruby", "emerald", "sapphire")):
+            update.gemstone_type = self._infer_gemstone(normalized)
+
+        if any(token in normalized for token in ("basket", "peghead", "bezel", "halo", "cluster")):
+            update.setting_family = self._infer_setting_family(normalized)
+
+        if any(token in normalized for token in ("open heart", "openheart")):
+            update.setting_openheart = True
+        elif "without open heart" in normalized or "no open heart" in normalized:
+            update.setting_openheart = False
+
+        if any(token in normalized for token in ("classic shank", "cathedral", "advanced shank", "classic band", "cathedral shank")):
+            update.shank_family = self._infer_shank_family(normalized, current.template_id)
+
+        setting_variant = self._extract_explicit_number(normalized, ("setting", "basket", "peghead", "bezel", "halo", "cluster"))
+        if setting_variant is not None:
+            update.setting_variant = setting_variant
+
+        shank_variant = self._extract_explicit_number(normalized, ("shank", "band", "cathedral", "advanced", "classic"))
+        if shank_variant is not None:
+            update.shank_variant = shank_variant
+
+        prong_count = self._extract_explicit_number(normalized, ("prong", "claw"))
+        if prong_count is not None:
+            update.prong_count = max(2, min(8, prong_count))
+
+        size_mm = self._extract_mm_value(normalized)
+        if size_mm is not None:
+            update.gemstone_size_mm = size_mm
+
+        return update
 
     def _infer_template(self, normalized: str) -> TemplateId:
         if "solitaire" in normalized:
@@ -107,6 +167,39 @@ class PromptInterpreterService:
         if "pear" in normalized or "teardrop" in normalized:
             return "pear"
         return "round"
+
+    def _infer_setting_family(self, normalized: str) -> SettingFamily:
+        if "cluster" in normalized:
+            return "cluster"
+        if "halo" in normalized:
+            return "halo"
+        if "bezel" in normalized:
+            return "bezel"
+        if "basket" in normalized:
+            return "basket"
+        return "peghead"
+
+    def _infer_shank_family(self, normalized: str, template_id: TemplateId) -> ShankFamily:
+        if "advanced" in normalized:
+            return "advanced"
+        if "cathedral" in normalized:
+            return "cathedral"
+        if template_id in {"halo_ring", "three_stone_ring"}:
+            return "cathedral"
+        return "classic"
+
+    def _infer_setting_variant(self, normalized: str) -> int:
+        picked = self._extract_explicit_number(normalized, ("basket", "peghead", "bezel", "halo", "cluster", "setting"))
+        return picked or 4
+
+    def _infer_shank_variant(self, normalized: str) -> int:
+        picked = self._extract_explicit_number(normalized, ("classic", "cathedral", "advanced", "shank", "band"))
+        return picked or 1
+
+    def _infer_openheart(self, normalized: str) -> bool:
+        if "without open heart" in normalized or "no open heart" in normalized:
+            return False
+        return "open heart" in normalized or "openheart" in normalized
 
     def _template_defaults(self, template_id: TemplateId) -> RingParameters:
         if template_id == "halo_ring":
@@ -166,6 +259,8 @@ class PromptInterpreterService:
             parameters.prong_count = min(parameters.prong_count, 4)
             parameters.setting_height_mm = max(0.9, parameters.setting_height_mm - 0.35)
             parameters.gemstone_size_mm = max(3.6, parameters.gemstone_size_mm - 0.4)
+            if parameters.setting_family in {"cluster", "halo"}:
+                parameters.setting_family = "peghead"
             return
 
         if style_tag == "vintage":
@@ -180,6 +275,7 @@ class PromptInterpreterService:
             parameters.prong_count = max(parameters.prong_count, 6)
             parameters.setting_height_mm = min(5.0, parameters.setting_height_mm + 0.3)
             parameters.gemstone_size_mm = min(12.0, parameters.gemstone_size_mm + 0.45)
+            parameters.shank_family = "cathedral"
 
             # Keep royal solitaire clean; richer side-stone layouts are reserved for non-solitaire templates.
             if parameters.template_id == "solitaire_ring":
@@ -190,6 +286,29 @@ class PromptInterpreterService:
 
         # modern
         parameters.band_profile = "knife_edge" if parameters.template_id == "split_shank_ring" else parameters.band_profile
+
+    def _extract_explicit_number(self, normalized: str, anchors: tuple[str, ...]) -> int | None:
+        tokens = normalized.replace("-", " ").split()
+        for index, token in enumerate(tokens):
+            if not token.isdigit():
+                continue
+            number = int(token)
+            window = " ".join(tokens[max(0, index - 2): min(len(tokens), index + 3)])
+            if any(anchor in window for anchor in anchors):
+                return number
+        return None
+
+    def _extract_mm_value(self, normalized: str) -> float | None:
+        tokens = normalized.replace("mm", " mm ").replace("-", " ").split()
+        for index, token in enumerate(tokens):
+            try:
+                value = float(token)
+            except ValueError:
+                continue
+            tail = " ".join(tokens[index: min(len(tokens), index + 3)])
+            if "mm" in tail or "millimeter" in tail or "size" in tail:
+                return max(1.0, min(12.0, value))
+        return None
 
     def _confidence_for(self, normalized: str) -> float:
         keyword_count = sum(

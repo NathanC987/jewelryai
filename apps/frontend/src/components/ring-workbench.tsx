@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type RingState = {
   ring_id: string;
@@ -13,6 +13,11 @@ type RingState = {
     prong_count: number;
     band_profile: "classic" | "flat" | "knife_edge" | "tapered";
     side_stone_count: number;
+    setting_family: "basket" | "peghead" | "bezel" | "halo" | "cluster";
+    setting_variant: number;
+    setting_openheart: boolean;
+    shank_family: "classic" | "cathedral" | "advanced";
+    shank_variant: number;
     setting_height_mm: number;
     gemstone_size_mm: number;
     band_thickness_mm: number;
@@ -27,12 +32,6 @@ type RingState = {
 };
 
 type RingParameters = RingState["parameters"];
-
-type VariationSuggestion = {
-  style_name: string;
-  summary: string;
-  ring: RingState;
-};
 
 type PromptInterpretation = {
   normalized_prompt: string;
@@ -54,17 +53,28 @@ const backendBase = apiBase.replace(/\/api\/v1\/?$/, "");
 
 type RingWorkbenchProps = {
   onViewerModelUrlChange: (modelUrl: string | null) => void;
+  onRingParametersChange?: (parameters: RingParameters | null) => void;
   initialParameters?: Partial<RingParameters> | null;
+  prompt: string;
+  onPromptChange: (prompt: string) => void;
+  hidePromptComposer?: boolean;
 };
 
-export function RingWorkbench({ onViewerModelUrlChange, initialParameters }: RingWorkbenchProps) {
+export function RingWorkbench({
+  onViewerModelUrlChange,
+  onRingParametersChange,
+  initialParameters,
+  prompt,
+  onPromptChange,
+  hidePromptComposer = false,
+}: RingWorkbenchProps) {
   const [ring, setRing] = useState<RingState | null>(null);
-  const [prompt, setPrompt] = useState("A modern solitaire diamond ring with a clean silhouette");
+  const [changePrompt, setChangePrompt] = useState("");
   const [interpretation, setInterpretation] = useState<PromptInterpretation | null>(null);
-  const [variations, setVariations] = useState<VariationSuggestion[]>([]);
   const [exportLinks, setExportLinks] = useState<{ glb?: string; stl?: string }>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const safePrompt = prompt ?? "";
 
   const canEdit = useMemo(() => Boolean(ring?.ring_id), [ring?.ring_id]);
 
@@ -104,7 +114,6 @@ export function RingWorkbench({ onViewerModelUrlChange, initialParameters }: Rin
       const created = await response.json();
       setRing(created);
       setInterpretation(null);
-      setVariations([]);
       await refreshViewerModel(created.ring_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -129,7 +138,6 @@ export function RingWorkbench({ onViewerModelUrlChange, initialParameters }: Rin
       const payload: PromptRingResponse = await response.json();
       setInterpretation(payload.interpretation);
       setRing(payload.ring);
-      setVariations([]);
       await refreshViewerModel(payload.ring.ring_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -138,7 +146,7 @@ export function RingWorkbench({ onViewerModelUrlChange, initialParameters }: Rin
     }
   }
 
-  async function patchRing(update: Record<string, number | string>) {
+  async function patchRing(update: Record<string, number | string | boolean>) {
     if (!ring) {
       return;
     }
@@ -164,23 +172,31 @@ export function RingWorkbench({ onViewerModelUrlChange, initialParameters }: Rin
     }
   }
 
-  async function generateVariations() {
+  async function applyChangePrompt() {
     if (!ring) {
+      return;
+    }
+
+    if (changePrompt.trim().length < 2) {
       return;
     }
 
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${apiBase}/rings/${ring.ring_id}/variations?count=5`, {
+      const response = await fetch(`${apiBase}/rings/${ring.ring_id}/change-prompt`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: changePrompt }),
       });
       if (!response.ok) {
-        throw new Error(`Variation generation failed: ${response.status}`);
+        throw new Error(`Change prompt update failed: ${response.status}`);
       }
 
       const result = await response.json();
-      setVariations(result.suggestions ?? []);
+      setRing(result);
+      setChangePrompt("");
+      await refreshViewerModel(result.ring_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -188,11 +204,17 @@ export function RingWorkbench({ onViewerModelUrlChange, initialParameters }: Rin
     }
   }
 
-  async function activateVariation(suggestion: VariationSuggestion) {
-    setRing(suggestion.ring);
-    setExportLinks({});
-    await refreshViewerModel(suggestion.ring.ring_id);
-  }
+  useEffect(() => {
+    onRingParametersChange?.(ring?.parameters ?? null);
+  }, [onRingParametersChange, ring?.parameters]);
+
+  useEffect(() => {
+    const handler = () => {
+      void createRingFromPrompt();
+    };
+    window.addEventListener("ring-generate-from-prompt", handler);
+    return () => window.removeEventListener("ring-generate-from-prompt", handler);
+  });
 
   async function requestExport(format: "glb" | "stl") {
     if (!ring) {
@@ -225,23 +247,29 @@ export function RingWorkbench({ onViewerModelUrlChange, initialParameters }: Rin
       <div className="result">
         <p><strong>Prompt-First Designer</strong></p>
         <p className="muted">Describe the ring you want. This is the default generation path.</p>
-        <label>
-          Design Prompt
-          <input
-            type="text"
-            disabled={loading}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-          />
-        </label>
-        <div className="export-row">
-          <button onClick={createRingFromPrompt} disabled={loading || prompt.trim().length < 3}>
-            {ring ? "Regenerate From Prompt" : "Generate From Prompt"}
-          </button>
-          <button onClick={createRing} disabled={loading}>
-            Create From Seeded Parameters
-          </button>
-        </div>
+        {!hidePromptComposer ? (
+          <>
+            <label>
+              Design Prompt
+              <input
+                type="text"
+                disabled={loading}
+                value={safePrompt}
+                onChange={(e) => onPromptChange(e.target.value)}
+              />
+            </label>
+            <div className="export-row">
+              <button onClick={createRingFromPrompt} disabled={loading || safePrompt.trim().length < 3}>
+                {ring ? "Regenerate From Prompt" : "Generate From Prompt"}
+              </button>
+              <button onClick={createRing} disabled={loading}>
+                Create From Seeded Parameters
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="muted">Use the left panel prompt box to generate and regenerate rings.</p>
+        )}
       </div>
 
       {interpretation ? (
@@ -310,6 +338,72 @@ export function RingWorkbench({ onViewerModelUrlChange, initialParameters }: Rin
             disabled={!canEdit || loading}
             value={ring?.parameters.prong_count ?? 4}
             onChange={(e) => patchRing({ prong_count: Number.parseInt(e.target.value, 10) })}
+          />
+        </label>
+
+        <label>
+          Setting Family
+          <select
+            disabled={!canEdit || loading}
+            value={ring?.parameters.setting_family ?? "peghead"}
+            onChange={(e) => patchRing({ setting_family: e.target.value })}
+          >
+            <option value="peghead">Peghead</option>
+            <option value="basket">Basket</option>
+            <option value="bezel">Bezel</option>
+            <option value="halo">Halo</option>
+            <option value="cluster">Cluster</option>
+          </select>
+        </label>
+
+        <label>
+          Setting Variant
+          <input
+            type="number"
+            min={1}
+            max={20}
+            step={1}
+            disabled={!canEdit || loading}
+            value={ring?.parameters.setting_variant ?? 4}
+            onChange={(e) => patchRing({ setting_variant: Number.parseInt(e.target.value, 10) })}
+          />
+        </label>
+
+        <label>
+          Open Heart
+          <select
+            disabled={!canEdit || loading}
+            value={ring?.parameters.setting_openheart ? "yes" : "no"}
+            onChange={(e) => patchRing({ setting_openheart: e.target.value === "yes" })}
+          >
+            <option value="no">No</option>
+            <option value="yes">Yes</option>
+          </select>
+        </label>
+
+        <label>
+          Shank Family
+          <select
+            disabled={!canEdit || loading}
+            value={ring?.parameters.shank_family ?? "classic"}
+            onChange={(e) => patchRing({ shank_family: e.target.value })}
+          >
+            <option value="classic">Classic</option>
+            <option value="cathedral">Cathedral</option>
+            <option value="advanced">Advanced</option>
+          </select>
+        </label>
+
+        <label>
+          Shank Variant
+          <input
+            type="number"
+            min={1}
+            max={20}
+            step={1}
+            disabled={!canEdit || loading}
+            value={ring?.parameters.shank_variant ?? 1}
+            onChange={(e) => patchRing({ shank_variant: Number.parseInt(e.target.value, 10) })}
           />
         </label>
 
@@ -396,16 +490,34 @@ export function RingWorkbench({ onViewerModelUrlChange, initialParameters }: Rin
             {ring.cost_estimate.gemstone_carat}ct
           </p>
           <p>
-            Shape: {ring.parameters.center_stone_shape.replace("_", " ")} | Prongs: {ring.parameters.prong_count} | Side Stones: {ring.parameters.side_stone_count} | Profile: {ring.parameters.band_profile.replace("_", " ")} | Setting: {ring.parameters.setting_height_mm} mm
+            Shape: {ring.parameters.center_stone_shape.replace("_", " ")} | Prongs: {ring.parameters.prong_count} | Side Stones: {ring.parameters.side_stone_count} | Profile: {ring.parameters.band_profile.replace("_", " ")} | Setting: {ring.parameters.setting_family} {ring.parameters.setting_variant}
           </p>
           <p>
-            Template: {ring.parameters.template_id.replace(/_/g, " ")} | Style: {ring.parameters.style_tag}
+            Template: {ring.parameters.template_id.replace(/_/g, " ")} | Style: {ring.parameters.style_tag} | Shank: {ring.parameters.shank_family} {ring.parameters.shank_variant}
           </p>
           <p>GLB URI: {ring.glb_asset_uri}</p>
           <div className="export-row">
             <button disabled={loading} onClick={() => requestExport("glb")}>Request GLB Export</button>
             <button disabled={loading} onClick={() => requestExport("stl")}>Request STL Export</button>
-            <button disabled={loading} onClick={generateVariations}>Generate 5 Style Variations</button>
+          </div>
+          <div className="result">
+            <p><strong>Change Prompt</strong></p>
+            <p className="muted">Use natural text to swap shape, setting, shank, prongs, gemstone, or metal.</p>
+            <label>
+              e.g. switch to marquise bezel open heart with cathedral shank 10 and 6 prongs
+              <input
+                type="text"
+                disabled={!canEdit || loading}
+                value={changePrompt}
+                onChange={(e) => setChangePrompt(e.target.value)}
+              />
+            </label>
+            <button
+              disabled={!canEdit || loading || changePrompt.trim().length < 2}
+              onClick={() => void applyChangePrompt()}
+            >
+              Apply Change Prompt
+            </button>
           </div>
           {exportLinks.glb ? <p>GLB Export: {exportLinks.glb}</p> : null}
           {exportLinks.stl ? <p>STL Export: {exportLinks.stl}</p> : null}
@@ -419,28 +531,6 @@ export function RingWorkbench({ onViewerModelUrlChange, initialParameters }: Rin
             <p>No manufacturability warnings.</p>
           )}
 
-          {variations.length > 0 ? (
-            <div className="variations-block">
-              <p><strong>Variation Concepts</strong></p>
-              <div className="variation-grid">
-                {variations.map((suggestion) => (
-                  <div className="variation-card" key={suggestion.ring.ring_id}>
-                    <p><strong>{suggestion.style_name}</strong></p>
-                    <p>{suggestion.summary}</p>
-                    <p>
-                      {suggestion.ring.parameters.gemstone_type} / {suggestion.ring.parameters.center_stone_shape.replace("_", " ")}
-                    </p>
-                    <p>
-                      ${suggestion.ring.cost_estimate.estimated_price_usd.toFixed(2)}
-                    </p>
-                    <button disabled={loading} onClick={() => void activateVariation(suggestion)}>
-                      Use This Variant
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
       ) : (
         <p className="muted">Create a ring to enable customization.</p>

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 
 from app.domain.ring import (
+    RingChangePromptRequest,
     PromptRingGenerateRequest,
     PromptRingGenerateResponse,
     RingGraphResponse,
@@ -20,6 +21,19 @@ def create_ring_from_prompt(payload: PromptRingGenerateRequest) -> PromptRingGen
     interpretation, parameters = prompt_interpreter_service.interpret(payload.prompt)
     ring = ring_service.create_ring(parameters=parameters)
     return PromptRingGenerateResponse(interpretation=interpretation, ring=ring)
+
+
+@router.post("/{ring_id}/change-prompt", response_model=RingStateResponse)
+def apply_change_prompt(ring_id: str, payload: RingChangePromptRequest) -> RingStateResponse:
+    current = ring_service.get_ring(ring_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Ring not found")
+
+    update = prompt_interpreter_service.interpret_change_prompt(payload.prompt, current.parameters)
+    state = ring_service.update_ring(ring_id, update)
+    if not state:
+        raise HTTPException(status_code=404, detail="Ring not found")
+    return state
 
 
 @router.post("", response_model=RingStateResponse)

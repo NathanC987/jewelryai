@@ -168,7 +168,10 @@ Responsibilities:
   - Parameter-aware procedural export mesh (band, center stone, and prongs)
   - Export mesh now responds to feature-level ring params (shape/profile/prong count/side-stone count/setting height)
   - Prompt interpreter service and /rings/from-prompt endpoint for deterministic prompt-to-template initialization
+  - Ring change-prompt endpoint (/rings/{id}/change-prompt) for deterministic natural-language component swaps
   - Open component library assembly path used by exporter to compose ring models from reusable parts
+  - Local component ingestion path from repository-level /components library (baskets/pegheads/bezels/halos/clusters/shanks) with procedural fallback
+  - Component catalog manifest support added for curated file-backed component overrides with automatic procedural fallback
   - Prompt interpretation now returns selected component recipe IDs for assembly transparency
   - Export mesh now responds to template/style identity (solitaire/halo/pave/split-shank/three-stone + style tags)
   - Prong geometry now uses coherent angled supports around the center stone instead of simple vertical pegs

@@ -4,13 +4,19 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 type ViewerCanvasProps = {
   modelUrl: string | null;
+  ringParameters: {
+    metal: "gold" | "rose_gold" | "platinum" | "silver";
+    gemstone_type: "diamond" | "ruby" | "emerald" | "sapphire";
+  } | null;
 };
 
-export function ViewerCanvas({ modelUrl }: ViewerCanvasProps) {
+export function ViewerCanvas({ modelUrl, ringParameters }: ViewerCanvasProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  const activeRootRef = useRef<THREE.Object3D | null>(null);
 
   useEffect(() => {
     if (!mountRef.current) {
@@ -29,9 +35,18 @@ export function ViewerCanvas({ modelUrl }: ViewerCanvasProps) {
     camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.3;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
     mount.appendChild(renderer.domElement);
+
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = environment;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -40,42 +55,25 @@ export function ViewerCanvas({ modelUrl }: ViewerCanvasProps) {
     controls.maxDistance = 30;
     controls.target.set(0, 0.5, 0);
 
-    const key = new THREE.DirectionalLight("#fff2d9", 1.1);
+    const key = new THREE.DirectionalLight("#fff2d9", 2.2);
     key.position.set(7, 10, 8);
+    key.castShadow = true;
     scene.add(key);
 
-    const fill = new THREE.AmbientLight("#fffdf6", 0.85);
+    const fill = new THREE.AmbientLight("#fffdf6", 0.65);
     scene.add(fill);
 
-    const rim = new THREE.DirectionalLight("#e8d8bc", 0.45);
+    const rim = new THREE.DirectionalLight("#e8d8bc", 0.9);
     rim.position.set(-8, 3, -6);
+    rim.castShadow = true;
     scene.add(rim);
+
+    const top = new THREE.DirectionalLight("#f7f7ff", 1.1);
+    top.position.set(0, 4, 14);
+    scene.add(top);
 
     const modelRoot = new THREE.Group();
     scene.add(modelRoot);
-
-    const placeholder = new THREE.Group();
-    const ringGeometry = new THREE.TorusGeometry(2, 0.5, 32, 120);
-    const ringMaterial = new THREE.MeshStandardMaterial({
-      color: "#d8b158",
-      metalness: 0.85,
-      roughness: 0.2,
-    });
-    const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
-    placeholder.add(ringMesh);
-
-    const stoneGeometry = new THREE.OctahedronGeometry(0.8, 1);
-    const stoneMaterial = new THREE.MeshPhysicalMaterial({
-      color: "#9ec7ff",
-      transmission: 1,
-      thickness: 0.8,
-      roughness: 0,
-      ior: 2.1,
-    });
-    const stoneMesh = new THREE.Mesh(stoneGeometry, stoneMaterial);
-    stoneMesh.position.set(0, 2.2, 0);
-    placeholder.add(stoneMesh);
-    modelRoot.add(placeholder);
 
     const fitCameraToObject = (object: THREE.Object3D) => {
       const box = new THREE.Box3().setFromObject(object);
@@ -93,21 +91,159 @@ export function ViewerCanvas({ modelUrl }: ViewerCanvasProps) {
       controls.update();
     };
 
+    const metalPalette: Record<string, string> = {
+      gold: "#d9b45a",
+      rose_gold: "#c98a7a",
+      platinum: "#d9dee4",
+      silver: "#c7ced7",
+    };
+    const gemPalette: Record<string, string> = {
+      diamond: "#d5e8ff",
+      ruby: "#c53946",
+      emerald: "#2f9f62",
+      sapphire: "#3558c9",
+    };
+
+    const applyMaterials = (root: THREE.Object3D) => {
+      const metalColor = new THREE.Color(metalPalette[ringParameters?.metal ?? "gold"]);
+      const gemColor = new THREE.Color(gemPalette[ringParameters?.gemstone_type ?? "diamond"]);
+
+      const classifyGemLike = (node: THREE.Mesh, source?: THREE.Material): boolean => {
+        const meshName = node.name ?? "";
+        const materialName = source?.name ?? "";
+
+        const pathHints: string[] = [];
+        let cursor: THREE.Object3D | null = node;
+        while (cursor) {
+          pathHints.push(cursor.name ?? "");
+          cursor = cursor.parent;
+        }
+
+        const hint = `${meshName} ${materialName} ${pathHints.join(" ")}`.toLowerCase();
+        if (
+          hint.includes("gem") ||
+          hint.includes("stone") ||
+          hint.includes("diamond") ||
+          hint.includes("ruby") ||
+          hint.includes("emerald") ||
+          hint.includes("sapphire")
+        ) {
+          return true;
+        }
+
+        if (source instanceof THREE.MeshPhysicalMaterial) {
+          if (source.transmission > 0.35 || source.ior > 1.5) {
+            return true;
+          }
+        }
+
+        return false;
+      };
+
+      const buildGemMaterial = (source?: THREE.Material) => {
+        const base = source?.clone() as THREE.MeshPhysicalMaterial | undefined;
+        const gemMaterial =
+          base instanceof THREE.MeshPhysicalMaterial
+            ? base
+            : new THREE.MeshPhysicalMaterial();
+
+        gemMaterial.name = source?.name ?? gemMaterial.name;
+        gemMaterial.map = null;
+        gemMaterial.roughnessMap = null;
+        gemMaterial.metalnessMap = null;
+        gemMaterial.normalMap = null;
+        gemMaterial.aoMap = null;
+        gemMaterial.emissiveMap = null;
+        gemMaterial.transmissionMap = null;
+        gemMaterial.thicknessMap = null;
+        gemMaterial.clearcoatMap = null;
+        gemMaterial.clearcoatRoughnessMap = null;
+        gemMaterial.specularIntensityMap = null;
+        gemMaterial.color = gemColor.clone();
+        gemMaterial.metalness = 0.0;
+        gemMaterial.roughness = 0.0;
+        gemMaterial.transmission = 1.0;
+        gemMaterial.thickness = Math.max(gemMaterial.thickness ?? 0.0, 1.8);
+        gemMaterial.ior = Math.max(gemMaterial.ior ?? 1.0, 2.2);
+        gemMaterial.clearcoat = 1.0;
+        gemMaterial.clearcoatRoughness = 0.0;
+        gemMaterial.reflectivity = 1.0;
+        gemMaterial.specularIntensity = 1.0;
+        gemMaterial.envMapIntensity = 2.8;
+        return gemMaterial;
+      };
+
+      const buildMetalMaterial = (source?: THREE.Material) => {
+        const base = source?.clone() as THREE.MeshPhysicalMaterial | undefined;
+        const metalMaterial =
+          base instanceof THREE.MeshPhysicalMaterial
+            ? base
+            : new THREE.MeshPhysicalMaterial();
+
+        metalMaterial.name = source?.name ?? metalMaterial.name;
+        metalMaterial.map = null;
+        metalMaterial.roughnessMap = null;
+        metalMaterial.metalnessMap = null;
+        metalMaterial.normalMap = null;
+        metalMaterial.aoMap = null;
+        metalMaterial.emissiveMap = null;
+        metalMaterial.clearcoatMap = null;
+        metalMaterial.clearcoatRoughnessMap = null;
+        metalMaterial.specularIntensityMap = null;
+        metalMaterial.color = metalColor.clone();
+        metalMaterial.metalness = 1.0;
+        metalMaterial.roughness = 0.09;
+        metalMaterial.clearcoat = 1.0;
+        metalMaterial.clearcoatRoughness = 0.03;
+        metalMaterial.reflectivity = 1.0;
+        metalMaterial.specularIntensity = 1.0;
+        metalMaterial.envMapIntensity = 2.2;
+        metalMaterial.transmission = 0.0;
+        return metalMaterial;
+      };
+
+      root.traverse((node) => {
+        if (!(node instanceof THREE.Mesh)) {
+          return;
+        }
+
+        if (Array.isArray(node.material)) {
+          node.material = node.material.map((sourceMaterial) => {
+            const isGemLike = classifyGemLike(node, sourceMaterial);
+            return isGemLike ? buildGemMaterial(sourceMaterial) : buildMetalMaterial(sourceMaterial);
+          });
+        } else {
+          const isGemLike = classifyGemLike(node, node.material ?? undefined);
+          node.material = isGemLike
+            ? buildGemMaterial(node.material ?? undefined)
+            : buildMetalMaterial(node.material ?? undefined);
+        }
+
+        node.castShadow = true;
+        node.receiveShadow = true;
+      });
+    };
+
     if (modelUrl) {
       const loader = new GLTFLoader();
       loader.load(
         modelUrl,
         (gltf) => {
           modelRoot.clear();
+          applyMaterials(gltf.scene);
           modelRoot.add(gltf.scene);
+          activeRootRef.current = gltf.scene;
           fitCameraToObject(gltf.scene);
         },
         undefined,
         () => {
           modelRoot.clear();
-          modelRoot.add(placeholder);
+          activeRootRef.current = null;
         }
       );
+    } else {
+      modelRoot.clear();
+      activeRootRef.current = null;
     }
 
     let frameId = 0;
@@ -132,16 +268,27 @@ export function ViewerCanvas({ modelUrl }: ViewerCanvasProps) {
       cancelAnimationFrame(frameId);
       window.removeEventListener("resize", onResize);
       controls.dispose();
-      ringGeometry.dispose();
-      ringMaterial.dispose();
-      stoneGeometry.dispose();
-      stoneMaterial.dispose();
+      if (activeRootRef.current) {
+        activeRootRef.current.traverse((node) => {
+          if (!(node instanceof THREE.Mesh)) {
+            return;
+          }
+          if (Array.isArray(node.material)) {
+            node.material.forEach((material) => material.dispose());
+          } else {
+            node.material.dispose();
+          }
+          node.geometry.dispose();
+        });
+      }
+      pmremGenerator.dispose();
+      environment.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) {
         mount.removeChild(renderer.domElement);
       }
     };
-  }, [modelUrl]);
+  }, [modelUrl, ringParameters]);
 
   return <div className="viewer-canvas" ref={mountRef} />;
 }

@@ -1,0 +1,239 @@
+{
+  "schema_version": 1,
+  "catalog_name": "jewelryai-demo-components",
+  "notes": "Curated component manifest for demo-ready ring assembly. file assets can override builtin procedural components when present.",
+  "components": [
+    {
+      "id": "band.classic",
+      "category": "band",
+      "status": "approved",
+      "source_type": "builtin",
+      "source_name": "jewelryai-procedural",
+      "license": "internal",
+      "tags": ["demo", "fallback"],
+      "quality_score": 0.62
+    },
+    {
+      "id": "band.tapered",
+      "category": "band",
+      "status": "approved",
+      "source_type": "builtin",
+      "source_name": "jewelryai-procedural",
+      "license": "internal",
+      "tags": ["demo", "fallback"],
+      "quality_score": 0.61
+    },
+    {
+      "id": "band.knife_edge",
+      "category": "band",
+      "status": "approved",
+      "source_type": "builtin",
+      "source_name": "jewelryai-procedural",
+      "license": "internal",
+      "tags": ["demo", "fallback"],
+      "quality_score": 0.6
+    },
+    {
+      "id": "setting.solitaire",
+      "category": "setting",
+      "status": "approved",
+      "source_type": "builtin",
+      "source_name": "jewelryai-procedural",
+      "license": "internal",
+      "tags": ["demo", "fallback"],
+      "quality_score": 0.64
+    },
+    {
+      "id": "setting.royal_crown",
+      "category": "setting",
+      "status": "approved",
+      "source_type": "builtin",
+      "source_name": "jewelryai-procedural",
+      "license": "internal",
+      "tags": ["demo", "fallback", "royal"],
+      "quality_score": 0.65
+    },
+    {
+      "id": "style.cathedral_arms",
+      "category": "style",
+      "status": "approved",
+      "source_type": "builtin",
+      "source_name": "jewelryai-procedural",
+      "license": "internal",
+      "tags": ["demo", "fallback", "royal"],
+      "quality_score": 0.63
+    },
+    {
+      "id": "accent.solitaire_shoulders",
+      "category": "accent",
+      "status": "approved",
+      "source_type": "builtin",
+      "source_name": "jewelryai-procedural",
+      "license": "internal",
+      "tags": ["demo", "fallback"],
+      "quality_score": 0.58
+    },
+
+    {
+      "id": "band.classic.asset.v1",
+      "category": "band",
+      "status": "candidate",
+      "source_type": "file",
+      "source_name": "jewelryai-demo-generated",
+      "source_url": "local://scripts/bootstrap_demo_component_assets.py",
+      "download_url": "https://raw.githubusercontent.com/pollonegro/3design-stl-models/main/Panther%20ring%201/panther-ring.stl",
+      "license": "internal-demo",
+      "file": "bands/classic_band_v1.glb",
+      "target_component_id": "band.classic",
+      "fit": {
+        "base_outer_radius_mm": 10.0,
+        "base_height_mm": 2.6
+      },
+      "tags": ["demo-pack", "local-generated"],
+      "quality_score": 0.7
+    },
+    {
+      "id": "band.tapered.asset.v1",
+      "category": "band",
+      "status": "approved",
+      "source_type": "file",
+      "source_name": "jewelryai-demo-generated",
+      "source_url": "local://scripts/bootstrap_demo_component_assets.py",
+      "download_url": "https://raw.githubusercontent.com/pollonegro/3design-stl-models/main/Panther%20ring%202/panther-ring2.stl",
+      "license": "internal-demo",
+      "file": "bands/tapered_band_v1.glb",
+      "target_component_id": "band.tapered",
+      "fit": {
+        "base_outer_radius_mm": 10.0,
+        "base_height_mm": 2.5
+      },
+      "tags": ["demo-pack", "local-generated"],
+      "quality_score": 0.69
+    },
+    {
+      "id": "setting.solitaire.asset.v1",
+      "category": "setting",
+      "status": "candidate",
+      "source_type": "file",
+      "source_name": "jewelryai-demo-generated",
+      "source_url": "local://scripts/bootstrap_demo_component_assets.py",
+      "download_url": "https://raw.githubusercontent.com/pollonegro/3design-stl-models/main/Diamonds%20rings/model1/model1.stl",
+      "license": "internal-demo",
+      "file": "settings/solitaire_head_v1.glb",
+      "target_component_id": "setting.solitaire",
+      "fit": {
+        "base_stone_radius_mm": 2.8,
+        "base_setting_height_mm": 2.5
+      },
+      "tags": ["demo-pack", "local-generated"],
+      "quality_score": 0.71
+    },
+    {
+      "id": "setting.royal_crown.asset.v1",
+      "category": "setting",
+      "status": "candidate",
+      "source_type": "file",
+      "source_name": "jewelryai-demo-generated",
+      "source_url": "local://scripts/bootstrap_demo_component_assets.py",
+      "download_url": "https://raw.githubusercontent.com/pollonegro/3design-stl-models/main/Diamonds%20rings/model1/model1.obj",
+      "license": "internal-demo",
+      "file": "settings/royal_crown_head_v1.glb",
+      "target_component_id": "setting.royal_crown",
+      "fit": {
+        "base_stone_radius_mm": 2.9,
+        "base_setting_height_mm": 3.2
+      },
+      "tags": ["demo-pack", "local-generated", "royal"],
+      "quality_score": 0.72
+    },
+    {
+      "id": "style.cathedral_arms.asset.v1",
+      "category": "style",
+      "status": "approved",
+      "source_type": "file",
+      "source_name": "jewelryai-demo-generated",
+      "source_url": "local://scripts/bootstrap_demo_component_assets.py",
+      "download_url": "https://raw.githubusercontent.com/pollonegro/3design-stl-models/main/Panther%20ring%202/panther-ring2.stl",
+      "license": "internal-demo",
+      "file": "styles/cathedral_arms_v1.glb",
+      "target_component_id": "style.cathedral_arms",
+      "fit": {
+        "base_outer_radius_mm": 10.0,
+        "base_setting_height_mm": 3.0
+      },
+      "tags": ["demo-pack", "local-generated", "royal"],
+      "quality_score": 0.7
+    },
+    {
+      "id": "accent.solitaire_shoulders.asset.v1",
+      "category": "accent",
+      "status": "approved",
+      "source_type": "file",
+      "source_name": "jewelryai-demo-generated",
+      "source_url": "local://scripts/bootstrap_demo_component_assets.py",
+      "download_url": "https://raw.githubusercontent.com/pollonegro/3design-stl-models/main/Diamonds%20rings/model1/model1.obj",
+      "license": "internal-demo",
+      "file": "accents/solitaire_shoulders_v1.glb",
+      "target_component_id": "accent.solitaire_shoulders",
+      "fit": {
+        "base_stone_radius_mm": 2.6,
+        "base_outer_radius_mm": 10.0
+      },
+      "tags": ["demo-pack", "local-generated"],
+      "quality_score": 0.68
+    },
+
+    {
+      "id": "setting.halo.asset.v1",
+      "category": "setting",
+      "status": "candidate",
+      "source_type": "file",
+      "source_name": "external-curation",
+      "source_url": "https://grabcad.com/library/tag/jewelry",
+      "download_url": "https://raw.githubusercontent.com/pollonegro/3design-stl-models/main/Panther%20ring%201/panther-ring.stl",
+      "license": "TBD",
+      "file": "settings/halo_head_v1.glb",
+      "target_component_id": "setting.halo",
+      "fit": {
+        "base_stone_radius_mm": 2.6,
+        "base_setting_height_mm": 2.4
+      },
+      "tags": ["demo-pack", "phase-2", "needs-license-review"],
+      "quality_score": 0.0
+    },
+    {
+      "id": "accent.halo_cluster.asset.v1",
+      "category": "accent",
+      "status": "candidate",
+      "source_type": "file",
+      "source_name": "external-curation",
+      "source_url": "https://grabcad.com/library/tag/jewelry",
+      "download_url": "https://raw.githubusercontent.com/pollonegro/3design-stl-models/main/Diamonds%20rings/model1/model1.obj",
+      "license": "TBD",
+      "file": "accents/halo_cluster_v1.glb",
+      "target_component_id": "accent.halo_cluster",
+      "fit": {
+        "base_stone_radius_mm": 2.6
+      },
+      "tags": ["demo-pack", "phase-2", "needs-license-review"],
+      "quality_score": 0.0
+    },
+    {
+      "id": "accent.pave_arc.asset.v1",
+      "category": "accent",
+      "status": "candidate",
+      "source_type": "file",
+      "source_name": "external-curation",
+      "source_url": "https://grabcad.com/library/tag/jewelry",
+      "download_url": "https://raw.githubusercontent.com/pollonegro/3design-stl-models/main/Diamonds%20rings/model1/model1.stl",
+      "license": "TBD",
+      "file": "accents/pave_arc_v1.glb",
+      "target_component_id": "accent.pave_arc",
+      "fit": {
+        "base_outer_radius_mm": 10.0
+      },
+      "tags": ["demo-pack", "phase-2", "needs-license-review"],
+      "quality_score": 0.0
+    }
+  ]
+}

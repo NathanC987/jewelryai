@@ -53,3 +53,27 @@ FastAPI gateway for MVP orchestration.
    - deterministic interpretation (normalized prompt, template_id, style_tag, confidence)
    - selected component recipe IDs used for assembly (for example band.*, setting.*, style.*, accent.*)
    - full editable ring state initialized from template defaults
+
+## Curated Component Catalog (Demo Showcase)
+- Manifest path:
+   - apps/backend/assets/components/manifest.json
+- Asset path convention:
+   - apps/backend/assets/components/<category>/<file>
+- Assembly behavior:
+   - If an approved file-backed component override exists for a target component id, exporter uses it.
+   - If no approved file-backed override exists (or asset file is missing), exporter falls back to built-in procedural geometry.
+
+### Catalog Audit Command
+- Run audit summary (status counts, missing files, unresolved licenses):
+   - uv run python scripts/component_catalog_audit.py
+
+### Demo Bootstrap (Local Test Assets)
+- Generate local file-backed demo components for hero solitaire flow:
+   - /home/nathan/jewelryai/.venv/bin/python scripts/bootstrap_demo_component_assets.py
+- Re-run catalog audit and confirm only phase-2 assets remain missing:
+   - uv run python scripts/component_catalog_audit.py
+
+### Download Real Online Assets Into Catalog
+- Fetch file-backed component assets from manifest download_url entries:
+   - uv run python scripts/fetch_component_assets.py
+- This command downloads STL/OBJ/GLB files and converts them to the manifest target file format when needed.

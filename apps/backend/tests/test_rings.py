@@ -100,3 +100,26 @@ def test_create_ring_from_prompt_royal_solitaire_keeps_clean_shoulder_defaults()
     assert payload["interpretation"]["style_tag"] == "royal"
     assert "setting.royal_crown" in payload["interpretation"]["selected_components"]
     assert payload["ring"]["parameters"]["side_stone_count"] == 0
+
+
+def test_change_prompt_endpoint_updates_component_recipe() -> None:
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/v1/rings/from-prompt",
+        json={"prompt": "elegant solitaire diamond ring"},
+    ).json()
+    ring_id = created["ring"]["ring_id"]
+
+    response = client.post(
+        f"/api/v1/rings/{ring_id}/change-prompt",
+        json={"prompt": "switch to marquise bezel open heart with cathedral shank 10"},
+    )
+    assert response.status_code == 200
+    patched = response.json()
+
+    assert patched["parameters"]["center_stone_shape"] == "marquise"
+    assert patched["parameters"]["setting_family"] == "bezel"
+    assert patched["parameters"]["setting_openheart"] is True
+    assert patched["parameters"]["shank_family"] == "cathedral"
+    assert patched["parameters"]["shank_variant"] == 10

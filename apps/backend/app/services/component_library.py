@@ -1,8 +1,8 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import trimesh
-
 
 @dataclass(frozen=True)
 class AssemblyContext:
@@ -15,6 +15,11 @@ class AssemblyContext:
     center_stone_shape: str
     prong_count: int
     side_stone_count: int
+    setting_family: str
+    setting_variant: int
+    setting_openheart: bool
+    shank_family: str
+    shank_variant: int
     setting_height_mm: float
 
 
@@ -50,27 +55,305 @@ class OpenComponentLibrary:
         "minimalist": "style.clean_gallery",
     }
 
+    local_components_root = Path(__file__).resolve().parents[4] / "components"
+
     def selected_components(self, context: AssemblyContext) -> list[str]:
         return self._resolve_component_ids(context)
 
     def assemble_ring(self, context: AssemblyContext) -> trimesh.Trimesh:
-        component_ids = self._resolve_component_ids(context)
-
-        meshes: list[trimesh.Trimesh] = []
-        for component_id in component_ids:
-            if component_id.startswith("band."):
-                meshes.extend(self._build_band_component(component_id, context))
-            elif component_id.startswith("setting."):
-                meshes.extend(self._build_setting_component(component_id, context))
-            elif component_id.startswith("accent."):
-                meshes.extend(self._build_accent_component(component_id, context))
-            elif component_id.startswith("style."):
-                meshes.extend(self._build_style_component(component_id, context))
-
+        scene = self.assemble_ring_scene(context)
+        meshes = [geometry.copy() for geometry in scene.geometry.values()]
         mesh = trimesh.util.concatenate(meshes)
         mesh.merge_vertices()
         mesh.remove_unreferenced_vertices()
         return mesh
+
+    def assemble_ring_scene(self, context: AssemblyContext) -> trimesh.Scene:
+        component_ids = self._resolve_component_ids(context)
+
+        scene = trimesh.Scene()
+        meshes: list[trimesh.Trimesh] = []
+        shank_mount_plane_y: float | None = None
+        shank_top_z: float | None = None
+        for component_id in component_ids:
+            local_meshes = self._load_local_component_meshes(
+                component_id,
+                context,
+                shank_mount_plane_y=shank_mount_plane_y,
+                shank_top_z=shank_top_z,
+            )
+            if local_meshes:
+                if component_id.startswith("band."):
+                    shank_reference = trimesh.util.concatenate([mesh.copy() for mesh in local_meshes])
+                    shank_bounds = shank_reference.bounds
+                    shank_mount_plane_y = float(shank_bounds[1][1]) - context.band_thickness_mm * 0.16
+                    shank_top_z = float(shank_bounds[1][2])
+
+                for index, local_mesh in enumerate(local_meshes):
+                    source_name = str(local_mesh.metadata.get("source_name", f"part_{index}"))
+                    scene.add_geometry(
+                        local_mesh,
+                        node_name=f"{component_id}.{source_name}.{index}",
+                        geom_name=f"{component_id}.{source_name}.{index}",
+                    )
+                meshes.extend(local_meshes)
+
+        if not meshes:
+            raise ValueError(
+                "No local component meshes could be loaded from the repository components library"
+            )
+        return scene
+
+    def _load_local_component_meshes(
+        self,
+        component_id: str,
+        context: AssemblyContext,
+        shank_mount_plane_y: float | None = None,
+        shank_top_z: float | None = None,
+    ) -> list[trimesh.Trimesh]:
+        if not self.local_components_root.exists():
+            return []
+
+        if component_id.startswith("band."):
+            shank_path = self._choose_shank_path(context)
+            if not shank_path:
+                return []
+            meshes = self._load_mesh_file_parts(shank_path)
+            if not meshes:
+                return []
+            return self._fit_local_shank_meshes(meshes, context)
+
+        if component_id.startswith("setting."):
+            setting_path = self._choose_setting_path(context)
+            if not setting_path:
+                return []
+            meshes = self._load_mesh_file_parts(setting_path)
+            if not meshes:
+                return []
+            return self._fit_local_setting_meshes(
+                meshes,
+                context,
+                shank_mount_plane_y=shank_mount_plane_y,
+                shank_top_z=shank_top_z,
+            )
+
+        return []
+
+    def _load_mesh_file_parts(self, mesh_path: Path) -> list[trimesh.Trimesh]:
+        if not mesh_path.exists():
+            return []
+
+        loaded = trimesh.load(mesh_path)
+        if isinstance(loaded, trimesh.Scene):
+            scene_meshes: list[trimesh.Trimesh] = []
+            for dumped in loaded.dump(concatenate=False):
+                if not isinstance(dumped, trimesh.Trimesh):
+                    continue
+
+                part = dumped.copy()
+                source_name = str(part.metadata.get("name", "part"))
+                part.metadata = {**part.metadata, "source_name": source_name}
+                part.merge_vertices()
+                part.remove_unreferenced_vertices()
+                scene_meshes.append(part)
+            return scene_meshes
+
+        if not isinstance(loaded, trimesh.Trimesh):
+            return []
+
+        mesh = loaded.copy()
+        mesh.merge_vertices()
+        mesh.remove_unreferenced_vertices()
+        return [mesh]
+
+    def _shape_key(self, shape: str) -> str:
+        shape_map = {
+            "round": "round",
+            "oval": "oval",
+            "princess": "princess",
+            "emerald_cut": "cushion",
+            "marquise": "marquise",
+            "pear": "oval",
+        }
+        return shape_map.get(shape, "round")
+
+    def _choose_existing_file(self, candidates: list[Path]) -> Path | None:
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _choose_shank_path(self, context: AssemblyContext) -> Path | None:
+        family = context.shank_family
+        variant = max(1, min(20, context.shank_variant))
+
+        if family == "advanced":
+            root = self.local_components_root / "advanced_shanks"
+            preferred = [root / f"advanced_{variant:02d}.glb"]
+            fallback = sorted(root.glob("advanced_*.glb"))
+            return self._choose_existing_file(preferred + fallback)
+
+        if family == "cathedral":
+            root = self.local_components_root / "cathedral_shanks"
+            preferred = [root / f"cathedral_{variant:02d}.glb"]
+            fallback = sorted(root.glob("cathedral_*.glb"))
+            return self._choose_existing_file(preferred + fallback)
+
+        root = self.local_components_root / "classic_shanks"
+        preferred = [root / f"classic_{variant:02d}.glb"]
+        fallback = sorted(root.glob("classic_*.glb"))
+        return self._choose_existing_file(preferred + fallback)
+
+    def _choose_setting_path(self, context: AssemblyContext) -> Path | None:
+        shape = self._shape_key(context.center_stone_shape)
+        family = context.setting_family
+
+        if family == "bezel":
+            root = self.local_components_root / "bezels"
+            suffix = "_openheart" if context.setting_openheart else ""
+            preferred = [root / f"bezel_{shape}{suffix}.glb"]
+            fallback = sorted(root.glob(f"bezel_{shape}*.glb")) + sorted(root.glob("bezel_*.glb"))
+            return self._choose_existing_file(preferred + fallback)
+
+        if family == "halo":
+            root = self.local_components_root / "halos"
+            variant = max(1, min(99, context.setting_variant))
+            preferred = [root / f"halo_{variant:02d}_{shape}.glb"]
+            fallback = sorted(root.glob(f"halo_*_{shape}.glb")) + sorted(root.glob("halo_*.glb"))
+            return self._choose_existing_file(preferred + fallback)
+
+        if family == "cluster":
+            root = self.local_components_root / "clusters"
+            variant = max(1, min(99, context.setting_variant))
+            preferred = [root / f"cluster_{variant:02d}_{shape}.glb"]
+            fallback = sorted(root.glob(f"cluster_*_{shape}.glb")) + sorted(root.glob("cluster_*.glb"))
+            return self._choose_existing_file(preferred + fallback)
+
+        if family == "basket":
+            root = self.local_components_root / "baskets"
+            count = min((3, 4, 6), key=lambda c: abs(c - context.prong_count))
+            preferred = [root / f"basket_{count:02d}_{shape}.glb"]
+            fallback = sorted(root.glob(f"basket_*_{shape}.glb")) + sorted(root.glob("basket_*.glb"))
+            return self._choose_existing_file(preferred + fallback)
+
+        root = self.local_components_root / "pegheads"
+        count = min((4, 6), key=lambda c: abs(c - context.prong_count))
+        preferred = [root / f"peghead_{count:02d}_{shape}.glb"]
+        fallback = sorted(root.glob(f"peghead_*_{shape}.glb")) + sorted(root.glob("peghead_*.glb"))
+        return self._choose_existing_file(preferred + fallback)
+
+    def _fit_local_shank_meshes(self, meshes: list[trimesh.Trimesh], context: AssemblyContext) -> list[trimesh.Trimesh]:
+        reference = trimesh.util.concatenate([mesh.copy() for mesh in meshes])
+        bounds = reference.bounds
+        extents = bounds[1] - bounds[0]
+
+        outer_radius, _, band_height = self._compute_ring_base(context)
+        target_width = outer_radius * 2.0
+        current_width = max(float(extents[0]), float(extents[1]), 1e-6)
+        current_height = max(float(extents[2]), 1e-6)
+
+        scale_xy = target_width / current_width
+        scale_z = max(0.6, band_height / current_height)
+        transform = np.eye(4)
+        transform[:3, :3] = np.diag([scale_xy, scale_xy, scale_z])
+
+        center = reference.bounding_box.centroid * np.array([scale_xy, scale_xy, scale_z])
+        transform[:3, 3] = -center
+
+        fitted_meshes: list[trimesh.Trimesh] = []
+        for mesh in meshes:
+            fitted = mesh.copy()
+            fitted.apply_transform(transform)
+            fitted.merge_vertices()
+            fitted.remove_unreferenced_vertices()
+            fitted_meshes.append(fitted)
+        return fitted_meshes
+
+    def _fit_local_setting_meshes(
+        self,
+        meshes: list[trimesh.Trimesh],
+        context: AssemblyContext,
+        shank_mount_plane_y: float | None = None,
+        shank_top_z: float | None = None,
+    ) -> list[trimesh.Trimesh]:
+        reference = trimesh.util.concatenate([mesh.copy() for mesh in meshes])
+        bounds = reference.bounds
+        extents = bounds[1] - bounds[0]
+
+        outer_radius, band_height, stone_radius, setting_center_y, _ = self._setting_frame(context)
+        width = max(float(extents[0]), float(extents[1]), 1e-6)
+        height = max(float(extents[2]), 1e-6)
+
+        family_width_factor = {
+            "peghead": 1.7,
+            "basket": 1.85,
+            "bezel": 1.95,
+            "halo": 2.6,
+            "cluster": 2.85,
+        }.get(context.setting_family, 1.8)
+        target_width = max(
+            1.2,
+            stone_radius * family_width_factor,
+            context.band_thickness_mm * 2.25,
+            outer_radius * 0.32,
+        )
+        target_height = max(0.8, context.setting_height_mm * 1.8)
+
+        scale_xy = target_width / width
+        scale_z = target_height / height
+        scaled_reference = reference.copy()
+        scaled_reference.apply_scale((scale_xy, scale_xy, scale_z))
+        center = scaled_reference.bounding_box.centroid
+        scaled_reference.apply_translation((-center[0], -center[1], -center[2]))
+
+        # Snap setting base to shank top and align to ring top centerline.
+        aligned_bounds = scaled_reference.bounds
+        min_z = float(aligned_bounds[0][2])
+        min_y = float(aligned_bounds[0][1])
+        max_abs_x = max(abs(float(aligned_bounds[0][0])), abs(float(aligned_bounds[1][0])), 1e-6)
+
+        target_base_z = (
+            shank_top_z + context.band_thickness_mm * 0.04
+            if shank_top_z is not None
+            else band_height * 0.56
+        )
+        delta_z = target_base_z - min_z
+
+        # Anchor the rear of the setting slightly behind the shank top arc.
+        mount_plane_y = (
+            shank_mount_plane_y - context.band_thickness_mm * 0.32
+            if shank_mount_plane_y is not None
+            else setting_center_y - context.band_thickness_mm * 0.62
+        )
+        delta_y = mount_plane_y - min_y
+
+        transform = np.eye(4)
+        transform[:3, :3] = np.diag([scale_xy, scale_xy, scale_z])
+        transform[:3, 3] = np.array([-center[0], -center[1] + delta_y, -center[2] + delta_z])
+
+        x_center = float(scaled_reference.bounding_box.centroid[0])
+        if abs(x_center) > max_abs_x * 0.05:
+            transform[0, 3] -= x_center
+
+        fitted_meshes: list[trimesh.Trimesh] = []
+        for mesh in meshes:
+            fitted = mesh.copy()
+            fitted.apply_transform(transform)
+            fitted.merge_vertices()
+            fitted.remove_unreferenced_vertices()
+            fitted_meshes.append(fitted)
+
+        return fitted_meshes
+
+    def _normalize_local_shank_orientation(self, mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+        # Source GLBs are authored in the expected orientation.
+        # Do not auto-remap axes, as this can rotate shanks incorrectly.
+        return mesh.copy()
+
+    def _normalize_local_setting_orientation(self, mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+        # Source GLBs are authored in the expected orientation.
+        # Do not auto-remap axes, as this can rotate settings incorrectly.
+        return mesh.copy()
 
     def _resolve_component_ids(self, context: AssemblyContext) -> list[str]:
         band_component = self.band_components.get(context.band_profile, "band.classic")
@@ -78,11 +361,13 @@ class OpenComponentLibrary:
         accent_component = self.accent_components.get(context.template_id)
         style_component = self.style_components.get(context.style_tag, "style.streamlined_gallery")
 
-        # Royal setting recipe biases the basket architecture toward taller crown-style settings.
+        # Keep recipe IDs stable for interpretation payloads.
         if context.style_tag == "royal" and setting_component in {"setting.solitaire", "setting.halo"}:
             setting_component = "setting.royal_crown"
 
         parts = [band_component, setting_component, style_component]
+        parts.append(f"setting_family.{context.setting_family}")
+        parts.append(f"shank_family.{context.shank_family}")
         if accent_component:
             parts.append(accent_component)
         return parts
@@ -424,6 +709,14 @@ def _build_prongs(
         prongs.append(tip)
 
     return prongs
+
+
+def _axis_remap_transform(order: tuple[int, int, int]) -> np.ndarray:
+    transform = np.eye(4)
+    transform[:3, :3] = 0.0
+    for target_axis, source_axis in enumerate(order):
+        transform[target_axis, source_axis] = 1.0
+    return transform
 
 
 def _apply_gemstone_material_shape_hint(stone: trimesh.Trimesh, gemstone_type: str) -> None:

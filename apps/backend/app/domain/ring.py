@@ -6,6 +6,8 @@ Metal = Literal["gold", "rose_gold", "platinum", "silver"]
 Gemstone = Literal["diamond", "ruby", "emerald", "sapphire"]
 CenterStoneShape = Literal["round", "oval", "princess", "emerald_cut", "marquise", "pear"]
 BandProfile = Literal["classic", "flat", "knife_edge", "tapered"]
+SettingFamily = Literal["basket", "peghead", "bezel", "halo", "cluster"]
+ShankFamily = Literal["classic", "cathedral", "advanced"]
 TemplateId = Literal[
     "solitaire_ring",
     "halo_ring",
@@ -25,6 +27,11 @@ class RingParameters(BaseModel):
     prong_count: int = Field(default=4, ge=2, le=8)
     band_profile: BandProfile = "classic"
     side_stone_count: int = Field(default=0, ge=0, le=24)
+    setting_family: SettingFamily = "peghead"
+    setting_variant: int = Field(default=4, ge=1, le=20)
+    setting_openheart: bool = False
+    shank_family: ShankFamily = "classic"
+    shank_variant: int = Field(default=1, ge=1, le=20)
     setting_height_mm: float = Field(default=1.8, ge=0.6, le=5.0)
     gemstone_size_mm: float = Field(default=4.0, ge=1.0, le=12.0)
     band_thickness_mm: float = Field(default=2.0, ge=1.2, le=5.0)
@@ -65,6 +72,11 @@ class RingUpdateRequest(BaseModel):
     prong_count: int | None = Field(default=None, ge=2, le=8)
     band_profile: BandProfile | None = None
     side_stone_count: int | None = Field(default=None, ge=0, le=24)
+    setting_family: SettingFamily | None = None
+    setting_variant: int | None = Field(default=None, ge=1, le=20)
+    setting_openheart: bool | None = None
+    shank_family: ShankFamily | None = None
+    shank_variant: int | None = Field(default=None, ge=1, le=20)
     setting_height_mm: float | None = Field(default=None, ge=0.6, le=5.0)
     gemstone_size_mm: float | None = Field(default=None, ge=1.0, le=12.0)
     band_thickness_mm: float | None = Field(default=None, ge=1.2, le=5.0)
@@ -118,6 +130,10 @@ class RingGraphResponse(BaseModel):
 
 class PromptRingGenerateRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=500)
+
+
+class RingChangePromptRequest(BaseModel):
+    prompt: str = Field(min_length=2, max_length=300)
 
 
 class PromptInterpretationResponse(BaseModel):

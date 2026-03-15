@@ -15,10 +15,11 @@
     "three": "0.176.0"
   },
   "devDependencies": {
-    "typescript": "5.7.3",
-    "@types/react": "18.3.18",
     "@types/node": "22.13.5",
+    "@types/react": "18.3.18",
+    "@types/three": "^0.183.1",
     "eslint": "8.57.1",
-    "eslint-config-next": "14.2.31"
+    "eslint-config-next": "14.2.31",
+    "typescript": "5.7.3"
   }
 }

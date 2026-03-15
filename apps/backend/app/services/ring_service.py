@@ -88,6 +88,26 @@ class RingService:
             graph.parameters.side_stone_count = update.side_stone_count
             changed_fields.append("side_stone_count")
             impacted_components.update({"side_stones", "band"})
+        if update.setting_family is not None:
+            graph.parameters.setting_family = update.setting_family
+            changed_fields.append("setting_family")
+            impacted_components.update({"center_stone", "prongs"})
+        if update.setting_variant is not None:
+            graph.parameters.setting_variant = update.setting_variant
+            changed_fields.append("setting_variant")
+            impacted_components.update({"center_stone", "prongs"})
+        if update.setting_openheart is not None:
+            graph.parameters.setting_openheart = update.setting_openheart
+            changed_fields.append("setting_openheart")
+            impacted_components.update({"center_stone", "prongs"})
+        if update.shank_family is not None:
+            graph.parameters.shank_family = update.shank_family
+            changed_fields.append("shank_family")
+            impacted_components.update({"band"})
+        if update.shank_variant is not None:
+            graph.parameters.shank_variant = update.shank_variant
+            changed_fields.append("shank_variant")
+            impacted_components.update({"band"})
         if update.setting_height_mm is not None:
             graph.parameters.setting_height_mm = update.setting_height_mm
             changed_fields.append("setting_height_mm")
@@ -257,10 +277,22 @@ class RingService:
         }[params.gemstone_type]
 
         side_stone_carat = round(max(0.0, params.side_stone_count * params.gemstone_size_mm * 0.0035), 3)
+        shank_cost_multiplier = {
+            "classic": 1.0,
+            "cathedral": 1.08,
+            "advanced": 1.15,
+        }[params.shank_family]
+        setting_cost_multiplier = {
+            "peghead": 1.0,
+            "basket": 1.04,
+            "bezel": 1.06,
+            "halo": 1.1,
+            "cluster": 1.12,
+        }[params.setting_family]
         estimated_price = round(
-            metal_weight_g * metal_rate
+            metal_weight_g * metal_rate * shank_cost_multiplier
             + gemstone_carat * gemstone_rate
-            + side_stone_carat * gemstone_rate * 0.45,
+            + side_stone_carat * gemstone_rate * 0.45 * setting_cost_multiplier,
             2,
         )
 
@@ -277,6 +309,13 @@ class RingService:
                 ManufacturabilityWarning(
                     code="STONE_STABILITY",
                     message="Large center stone may require stronger prong settings.",
+                )
+            )
+        if params.setting_family == "bezel" and params.setting_openheart:
+            warnings.append(
+                ManufacturabilityWarning(
+                    code="OPENHEART_COMPLEXITY",
+                    message="Open-heart bezel requires tighter tolerance checks for production.",
                 )
             )
 
@@ -404,12 +443,19 @@ def _apply_variation_preset(
     )
 
     return RingParameters(
+        template_id=base.template_id,
+        style_tag=base.style_tag,
         metal=str(preset["metal"]),
         gemstone_type=str(preset["gemstone_type"]),
         center_stone_shape=str(preset["center_stone_shape"]),
         prong_count=int(preset["prong_count"]),
         band_profile=str(preset["band_profile"]),
         side_stone_count=base.side_stone_count,
+        setting_family=base.setting_family,
+        setting_variant=base.setting_variant,
+        setting_openheart=base.setting_openheart,
+        shank_family=base.shank_family,
+        shank_variant=base.shank_variant,
         setting_height_mm=round(_clamp_float(float(preset["setting_height"]), minimum=0.6, maximum=5.0), 2),
         gemstone_size_mm=round(gemstone_size_mm, 2),
         band_thickness_mm=round(band_thickness_mm, 2),
