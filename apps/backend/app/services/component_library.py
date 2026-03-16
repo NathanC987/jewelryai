@@ -1,8 +1,58 @@
+import logging
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import trimesh
+
+from app.core.config import settings
+
+
+placement_logger = logging.getLogger("service.component_library")
+
+# Backend assembly coordinate convention used by mesh fitting math.
+AXIS_CONVENTION = {
+    "x": "left/right",
+    "y": "vertical up/down",
+    "z": "front/back",
+}
+
+
+@dataclass(frozen=True)
+class ComponentMidpoints:
+    bounds_min: tuple[float, float, float]
+    bounds_max: tuple[float, float, float]
+    midpoint: tuple[float, float, float]
+    top_midpoint: tuple[float, float, float]
+    bottom_midpoint: tuple[float, float, float]
+
+    def to_dict(self) -> dict[str, list[float]]:
+        return {
+            "bounds_min": [float(v) for v in self.bounds_min],
+            "bounds_max": [float(v) for v in self.bounds_max],
+            "midpoint": [float(v) for v in self.midpoint],
+            "top_midpoint": [float(v) for v in self.top_midpoint],
+            "bottom_midpoint": [float(v) for v in self.bottom_midpoint],
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, list[float]]) -> "ComponentMidpoints":
+        return ComponentMidpoints(
+            bounds_min=(float(data["bounds_min"][0]), float(data["bounds_min"][1]), float(data["bounds_min"][2])),
+            bounds_max=(float(data["bounds_max"][0]), float(data["bounds_max"][1]), float(data["bounds_max"][2])),
+            midpoint=(float(data["midpoint"][0]), float(data["midpoint"][1]), float(data["midpoint"][2])),
+            top_midpoint=(
+                float(data["top_midpoint"][0]),
+                float(data["top_midpoint"][1]),
+                float(data["top_midpoint"][2]),
+            ),
+            bottom_midpoint=(
+                float(data["bottom_midpoint"][0]),
+                float(data["bottom_midpoint"][1]),
+                float(data["bottom_midpoint"][2]),
+            ),
+        )
 
 @dataclass(frozen=True)
 class AssemblyContext:
@@ -57,6 +107,141 @@ class OpenComponentLibrary:
 
     local_components_root = Path(__file__).resolve().parents[4] / "components"
 
+    def __init__(self) -> None:
+        self._midpoint_cache_path = self.local_components_root / ".component_midpoints_cache.json"
+        self._midpoint_cache: dict[str, dict[str, list[float]]] = self._load_midpoint_cache()
+
+    def _load_midpoint_cache(self) -> dict[str, dict[str, list[float]]]:
+        if not self._midpoint_cache_path.exists():
+            return {}
+        try:
+            payload = json.loads(self._midpoint_cache_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        normalized: dict[str, dict[str, list[float]]] = {}
+        for key, value in payload.items():
+            if isinstance(key, str) and isinstance(value, dict):
+                normalized[key] = value
+        return normalized
+
+    def _persist_midpoint_cache(self) -> None:
+        self._midpoint_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._midpoint_cache_path.write_text(json.dumps(self._midpoint_cache, indent=2, sort_keys=True))
+
+    def _build_component_cache_key(self, component_id: str, source_path: Path) -> str:
+        stat = source_path.stat()
+        return f"{component_id}|{source_path.resolve()}|{stat.st_mtime_ns}|{stat.st_size}"
+
+    @staticmethod
+    def _to_point(values: np.ndarray | tuple[float, float, float]) -> tuple[float, float, float]:
+        return (float(values[0]), float(values[1]), float(values[2]))
+
+    @staticmethod
+    def _point_payload(point: tuple[float, float, float]) -> list[float]:
+        return [round(float(point[0]), 4), round(float(point[1]), 4), round(float(point[2]), 4)]
+
+    @staticmethod
+    def _midpoints_payload(midpoints: ComponentMidpoints) -> dict[str, list[float]]:
+        return {
+            "bounds_min": OpenComponentLibrary._point_payload(midpoints.bounds_min),
+            "bounds_max": OpenComponentLibrary._point_payload(midpoints.bounds_max),
+            "midpoint": OpenComponentLibrary._point_payload(midpoints.midpoint),
+            "top_midpoint": OpenComponentLibrary._point_payload(midpoints.top_midpoint),
+            "bottom_midpoint": OpenComponentLibrary._point_payload(midpoints.bottom_midpoint),
+        }
+
+    def _compute_component_midpoints(self, meshes: list[trimesh.Trimesh]) -> ComponentMidpoints:
+        if not meshes:
+            raise ValueError("Cannot compute midpoints for empty mesh list")
+
+        bounds = np.array(meshes[0].bounds, dtype=float)
+        for mesh in meshes[1:]:
+            mesh_bounds = np.array(mesh.bounds, dtype=float)
+            bounds[0] = np.minimum(bounds[0], mesh_bounds[0])
+            bounds[1] = np.maximum(bounds[1], mesh_bounds[1])
+
+        x_center = float((bounds[0][0] + bounds[1][0]) * 0.5)
+        y_center = float((bounds[0][1] + bounds[1][1]) * 0.5)
+        z_center = float((bounds[0][2] + bounds[1][2]) * 0.5)
+
+        return ComponentMidpoints(
+            bounds_min=self._to_point(bounds[0]),
+            bounds_max=self._to_point(bounds[1]),
+            midpoint=(x_center, y_center, z_center),
+            top_midpoint=(x_center, float(bounds[1][1]), z_center),
+            bottom_midpoint=(x_center, float(bounds[0][1]), z_center),
+        )
+
+    def _get_component_midpoints(self, cache_key: str, meshes: list[trimesh.Trimesh]) -> ComponentMidpoints:
+        cached = self._midpoint_cache.get(cache_key)
+        if cached is not None:
+            return ComponentMidpoints.from_dict(cached)
+
+        computed = self._compute_component_midpoints(meshes)
+        self._midpoint_cache[cache_key] = computed.to_dict()
+        self._persist_midpoint_cache()
+        return computed
+
+    @staticmethod
+    def _transform_point(transform: np.ndarray, point: tuple[float, float, float]) -> tuple[float, float, float]:
+        p = np.array([point[0], point[1], point[2], 1.0], dtype=float)
+        transformed = transform @ p
+        return (float(transformed[0]), float(transformed[1]), float(transformed[2]))
+
+    def _transform_component_midpoints(self, midpoints: ComponentMidpoints, transform: np.ndarray) -> ComponentMidpoints:
+        x_min, y_min, z_min = midpoints.bounds_min
+        x_max, y_max, z_max = midpoints.bounds_max
+        corners = [
+            (x_min, y_min, z_min),
+            (x_min, y_min, z_max),
+            (x_min, y_max, z_min),
+            (x_min, y_max, z_max),
+            (x_max, y_min, z_min),
+            (x_max, y_min, z_max),
+            (x_max, y_max, z_min),
+            (x_max, y_max, z_max),
+        ]
+        transformed_corners = np.array([self._transform_point(transform, corner) for corner in corners], dtype=float)
+        transformed_bounds_min = transformed_corners.min(axis=0)
+        transformed_bounds_max = transformed_corners.max(axis=0)
+
+        return ComponentMidpoints(
+            bounds_min=self._to_point(transformed_bounds_min),
+            bounds_max=self._to_point(transformed_bounds_max),
+            midpoint=self._transform_point(transform, midpoints.midpoint),
+            top_midpoint=self._transform_point(transform, midpoints.top_midpoint),
+            bottom_midpoint=self._transform_point(transform, midpoints.bottom_midpoint),
+        )
+
+    @staticmethod
+    def _bounds_payload(mesh: trimesh.Trimesh) -> dict[str, list[float]]:
+        bounds = mesh.bounds
+        extents = bounds[1] - bounds[0]
+        center = mesh.bounding_box.centroid
+        return {
+            "min": [round(float(bounds[0][0]), 4), round(float(bounds[0][1]), 4), round(float(bounds[0][2]), 4)],
+            "max": [round(float(bounds[1][0]), 4), round(float(bounds[1][1]), 4), round(float(bounds[1][2]), 4)],
+            "extents_xyz": [
+                round(float(extents[0]), 4),
+                round(float(extents[1]), 4),
+                round(float(extents[2]), 4),
+            ],
+            "center_xyz": [
+                round(float(center[0]), 4),
+                round(float(center[1]), 4),
+                round(float(center[2]), 4),
+            ],
+        }
+
+    @staticmethod
+    def _axis_payload() -> dict[str, str]:
+        return {
+            **AXIS_CONVENTION,
+            "note": "Viewer can remap axes for display; placement math here always uses backend axis convention.",
+        }
+
     def selected_components(self, context: AssemblyContext) -> list[str]:
         return self._resolve_component_ids(context)
 
@@ -73,21 +258,27 @@ class OpenComponentLibrary:
 
         scene = trimesh.Scene()
         meshes: list[trimesh.Trimesh] = []
-        shank_mount_plane_y: float | None = None
-        shank_top_z: float | None = None
+        shank_midpoints: ComponentMidpoints | None = None
         for component_id in component_ids:
-            local_meshes = self._load_local_component_meshes(
+            local_meshes, component_midpoints = self._load_local_component_meshes(
                 component_id,
                 context,
-                shank_mount_plane_y=shank_mount_plane_y,
-                shank_top_z=shank_top_z,
+                shank_midpoints=shank_midpoints,
             )
             if local_meshes:
-                if component_id.startswith("band."):
-                    shank_reference = trimesh.util.concatenate([mesh.copy() for mesh in local_meshes])
-                    shank_bounds = shank_reference.bounds
-                    shank_mount_plane_y = float(shank_bounds[1][1]) - context.band_thickness_mm * 0.16
-                    shank_top_z = float(shank_bounds[1][2])
+                if component_id.startswith("band.") and component_midpoints is not None:
+                    shank_midpoints = component_midpoints
+                    if settings.component_placement_debug:
+                        placement_logger.info(
+                            {
+                                "operation": "shank_anchor_reference",
+                                "template_id": context.template_id,
+                                "shank_family": context.shank_family,
+                                "shank_variant": context.shank_variant,
+                                "shank_midpoints": self._midpoints_payload(component_midpoints),
+                                "axis_convention": self._axis_payload(),
+                            }
+                        )
 
                 for index, local_mesh in enumerate(local_meshes):
                     source_name = str(local_mesh.metadata.get("source_name", f"part_{index}"))
@@ -108,36 +299,39 @@ class OpenComponentLibrary:
         self,
         component_id: str,
         context: AssemblyContext,
-        shank_mount_plane_y: float | None = None,
-        shank_top_z: float | None = None,
-    ) -> list[trimesh.Trimesh]:
+        shank_midpoints: ComponentMidpoints | None = None,
+    ) -> tuple[list[trimesh.Trimesh], ComponentMidpoints | None]:
         if not self.local_components_root.exists():
-            return []
+            return [], None
 
         if component_id.startswith("band."):
             shank_path = self._choose_shank_path(context)
             if not shank_path:
-                return []
+                return [], None
             meshes = self._load_mesh_file_parts(shank_path)
             if not meshes:
-                return []
-            return self._fit_local_shank_meshes(meshes, context)
+                return [], None
+            cache_key = self._build_component_cache_key(component_id, shank_path)
+            fitted_meshes, fitted_midpoints = self._fit_local_shank_meshes(meshes, context, cache_key)
+            return fitted_meshes, fitted_midpoints
 
         if component_id.startswith("setting."):
             setting_path = self._choose_setting_path(context)
             if not setting_path:
-                return []
+                return [], None
             meshes = self._load_mesh_file_parts(setting_path)
             if not meshes:
-                return []
-            return self._fit_local_setting_meshes(
+                return [], None
+            cache_key = self._build_component_cache_key(component_id, setting_path)
+            fitted_meshes = self._fit_local_setting_meshes(
                 meshes,
                 context,
-                shank_mount_plane_y=shank_mount_plane_y,
-                shank_top_z=shank_top_z,
+                cache_key=cache_key,
+                shank_midpoints=shank_midpoints,
             )
+            return fitted_meshes, None
 
-        return []
+        return [], None
 
     def _load_mesh_file_parts(self, mesh_path: Path) -> list[trimesh.Trimesh]:
         if not mesh_path.exists():
@@ -242,23 +436,56 @@ class OpenComponentLibrary:
         fallback = sorted(root.glob(f"peghead_*_{shape}.glb")) + sorted(root.glob("peghead_*.glb"))
         return self._choose_existing_file(preferred + fallback)
 
-    def _fit_local_shank_meshes(self, meshes: list[trimesh.Trimesh], context: AssemblyContext) -> list[trimesh.Trimesh]:
+    def _fit_local_shank_meshes(
+        self,
+        meshes: list[trimesh.Trimesh],
+        context: AssemblyContext,
+        cache_key: str,
+    ) -> tuple[list[trimesh.Trimesh], ComponentMidpoints]:
         reference = trimesh.util.concatenate([mesh.copy() for mesh in meshes])
         bounds = reference.bounds
         extents = bounds[1] - bounds[0]
 
         outer_radius, _, band_height = self._compute_ring_base(context)
         target_width = outer_radius * 2.0
-        current_width = max(float(extents[0]), float(extents[1]), 1e-6)
-        current_height = max(float(extents[2]), 1e-6)
+        current_width = max(float(extents[0]), float(extents[2]), 1e-6)
 
-        scale_xy = target_width / current_width
-        scale_z = max(0.6, band_height / current_height)
-        transform = np.eye(4)
-        transform[:3, :3] = np.diag([scale_xy, scale_xy, scale_z])
+        # Keep shank proportions intact by using a single uniform scale.
+        # Non-uniform planar/vertical scaling can visually squash the shank.
+        scale_uniform = target_width / current_width
+        transform = np.eye(4, dtype=float)
+        transform[:3, :3] = np.diag([scale_uniform, scale_uniform, scale_uniform])
 
-        center = reference.bounding_box.centroid * np.array([scale_xy, scale_xy, scale_z])
-        transform[:3, 3] = -center
+        source_midpoints = self._get_component_midpoints(cache_key, meshes)
+        source_midpoint = np.array(source_midpoints.midpoint, dtype=float)
+        transform[:3, 3] = source_midpoint - transform[:3, :3] @ source_midpoint
+
+        scaled_midpoints = self._transform_component_midpoints(source_midpoints, transform)
+        recenter = np.eye(4, dtype=float)
+        recenter[:3, 3] = -np.array(scaled_midpoints.midpoint, dtype=float)
+        transform = recenter @ transform
+        fitted_midpoints = self._transform_component_midpoints(source_midpoints, transform)
+
+        if settings.component_placement_debug:
+            placement_logger.info(
+                {
+                    "operation": "shank_fit_deltas",
+                    "template_id": context.template_id,
+                    "shank_family": context.shank_family,
+                    "shank_variant": context.shank_variant,
+                    "computed": {
+                        "scale_uniform": round(float(scale_uniform), 5),
+                        "target_band_height": round(float(band_height), 5),
+                        "translation_xyz": [
+                            round(float(transform[0, 3]), 4),
+                            round(float(transform[1, 3]), 4),
+                            round(float(transform[2, 3]), 4),
+                        ],
+                    },
+                    "result_midpoints": self._midpoints_payload(fitted_midpoints),
+                    "axis_convention": self._axis_payload(),
+                }
+            )
 
         fitted_meshes: list[trimesh.Trimesh] = []
         for mesh in meshes:
@@ -267,22 +494,39 @@ class OpenComponentLibrary:
             fitted.merge_vertices()
             fitted.remove_unreferenced_vertices()
             fitted_meshes.append(fitted)
-        return fitted_meshes
+        return fitted_meshes, fitted_midpoints
 
     def _fit_local_setting_meshes(
         self,
         meshes: list[trimesh.Trimesh],
         context: AssemblyContext,
-        shank_mount_plane_y: float | None = None,
-        shank_top_z: float | None = None,
+        cache_key: str,
+        shank_midpoints: ComponentMidpoints | None = None,
     ) -> list[trimesh.Trimesh]:
         reference = trimesh.util.concatenate([mesh.copy() for mesh in meshes])
         bounds = reference.bounds
         extents = bounds[1] - bounds[0]
 
+        if settings.component_placement_debug:
+            placement_logger.info(
+                {
+                    "operation": "setting_fit_reference",
+                    "template_id": context.template_id,
+                    "setting_family": context.setting_family,
+                    "shank_family": context.shank_family,
+                    "params": {
+                        "band_thickness_mm": context.band_thickness_mm,
+                        "gemstone_size_mm": context.gemstone_size_mm,
+                        "setting_height_mm": context.setting_height_mm,
+                    },
+                    "reference_bounds": self._bounds_payload(reference),
+                    "shank_midpoints": None if shank_midpoints is None else self._midpoints_payload(shank_midpoints),
+                }
+            )
+
         outer_radius, band_height, stone_radius, setting_center_y, _ = self._setting_frame(context)
-        width = max(float(extents[0]), float(extents[1]), 1e-6)
-        height = max(float(extents[2]), 1e-6)
+        width = max(float(extents[0]), float(extents[2]), 1e-6)
+        height = max(float(extents[1]), 1e-6)
 
         family_width_factor = {
             "peghead": 1.7,
@@ -299,45 +543,70 @@ class OpenComponentLibrary:
         )
         target_height = max(0.8, context.setting_height_mm * 1.8)
 
-        scale_xy = target_width / width
-        scale_z = target_height / height
-        # Preserve proportions and avoid shrinking settings to satisfy height fit.
-        # Width is minimum desired size; taller setting requests can still scale up.
-        scale_uniform = max(scale_xy, scale_z)
-        scaled_reference = reference.copy()
-        scaled_reference.apply_scale((scale_uniform, scale_uniform, scale_uniform))
-        center = scaled_reference.bounding_box.centroid
-        scaled_reference.apply_translation((-center[0], -center[1], -center[2]))
+        scale_planar = target_width / width
+        scale_vertical = target_height / height
+        scale_uniform = max(scale_planar, scale_vertical)
 
-        # Snap setting base to shank top and align to ring top centerline.
-        aligned_bounds = scaled_reference.bounds
-        min_z = float(aligned_bounds[0][2])
-        min_y = float(aligned_bounds[0][1])
-        max_abs_x = max(abs(float(aligned_bounds[0][0])), abs(float(aligned_bounds[1][0])), 1e-6)
-
-        target_base_z = (
-            shank_top_z - context.band_thickness_mm * 1.71
-            if shank_top_z is not None
-            else band_height * 0.56
-        )
-        delta_z = target_base_z - min_z
-
-        # Keep the setting aligned around the shank crown in-ring axis (Y).
-        # Visual "behind" adjustment is applied in Z (depth) above.
-        mount_plane_y = (
-            shank_mount_plane_y - context.band_thickness_mm * 0.32
-            if shank_mount_plane_y is not None
-            else setting_center_y - context.band_thickness_mm * 0.62
-        )
-        delta_y = mount_plane_y - min_y
-
-        transform = np.eye(4)
+        transform = np.eye(4, dtype=float)
         transform[:3, :3] = np.diag([scale_uniform, scale_uniform, scale_uniform])
-        transform[:3, 3] = np.array([-center[0], -center[1] + delta_y, -center[2] + delta_z])
 
-        x_center = float(scaled_reference.bounding_box.centroid[0])
-        if abs(x_center) > max_abs_x * 0.05:
-            transform[0, 3] -= x_center
+        source_midpoints = self._get_component_midpoints(cache_key, meshes)
+        source_midpoint = np.array(source_midpoints.midpoint, dtype=float)
+        transform[:3, 3] = source_midpoint - transform[:3, :3] @ source_midpoint
+        scaled_midpoints = self._transform_component_midpoints(source_midpoints, transform)
+
+        # Slightly increase overlap so the setting visibly nests into the shank.
+        overlap_clearance = max(0.1, context.band_thickness_mm * 0.12)
+        if shank_midpoints is not None:
+            target_bottom = np.array(
+                [
+                    shank_midpoints.top_midpoint[0],
+                    shank_midpoints.top_midpoint[1] - overlap_clearance,
+                    shank_midpoints.top_midpoint[2],
+                ],
+                dtype=float,
+            )
+        else:
+            target_bottom = np.array(
+                [
+                    0.0,
+                    setting_center_y - context.band_thickness_mm * 0.1,
+                    0.0,
+                ],
+                dtype=float,
+            )
+
+        setting_bottom = np.array(scaled_midpoints.bottom_midpoint, dtype=float)
+        translation_delta = target_bottom - setting_bottom
+        placement = np.eye(4, dtype=float)
+        placement[:3, 3] = translation_delta
+        transform = placement @ transform
+        fitted_midpoints = self._transform_component_midpoints(source_midpoints, transform)
+
+        if settings.component_placement_debug:
+            placement_logger.info(
+                {
+                    "operation": "setting_fit_deltas",
+                    "template_id": context.template_id,
+                    "setting_family": context.setting_family,
+                    "computed": {
+                        "scale_uniform": round(float(scale_uniform), 5),
+                        "scale_planar": round(float(scale_planar), 5),
+                        "scale_vertical": round(float(scale_vertical), 5),
+                        "overlap_clearance": round(float(overlap_clearance), 4),
+                        "setting_bottom_before": self._point_payload(scaled_midpoints.bottom_midpoint),
+                        "target_bottom": self._point_payload((float(target_bottom[0]), float(target_bottom[1]), float(target_bottom[2]))),
+                        "delta_xyz": self._point_payload((float(translation_delta[0]), float(translation_delta[1]), float(translation_delta[2]))),
+                        "translation_xyz": [
+                            round(float(transform[0, 3]), 4),
+                            round(float(transform[1, 3]), 4),
+                            round(float(transform[2, 3]), 4),
+                        ],
+                    },
+                    "setting_midpoints_after": self._midpoints_payload(fitted_midpoints),
+                    "axis_convention": self._axis_payload(),
+                }
+            )
 
         fitted_meshes: list[trimesh.Trimesh] = []
         for mesh in meshes:
@@ -346,6 +615,17 @@ class OpenComponentLibrary:
             fitted.merge_vertices()
             fitted.remove_unreferenced_vertices()
             fitted_meshes.append(fitted)
+
+        if settings.component_placement_debug and fitted_meshes:
+            fitted_reference = trimesh.util.concatenate([mesh.copy() for mesh in fitted_meshes])
+            placement_logger.info(
+                {
+                    "operation": "setting_fit_result",
+                    "template_id": context.template_id,
+                    "setting_family": context.setting_family,
+                    "result_bounds": self._bounds_payload(fitted_reference),
+                }
+            )
 
         return fitted_meshes
 

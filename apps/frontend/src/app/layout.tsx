@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "JewelryAI MVP",
-  description: "Ring customization MVP shell",
+  title: "JewelryAI Studio",
+  description: "Professional ring design and customization workspace",
 };
 
 export default function RootLayout({
@@ -19,11 +19,11 @@ export default function RootLayout({
             </span>
             <div>
               <div className="app-title">JewelryAI</div>
-              <div className="app-subtitle">Ring design studio</div>
+              <div className="app-subtitle">Design Studio</div>
             </div>
           </div>
           <div className="app-header__meta">
-            <span className="app-version">MVP</span>
+            <span className="app-version">Rings</span>
           </div>
         </header>
 

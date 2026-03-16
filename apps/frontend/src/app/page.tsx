@@ -49,12 +49,12 @@ export default function HomePage() {
   return (
     <main className="page">
       <aside className="left-panel">
-        <h2>Design Options</h2>
+        <h2>Design Brief</h2>
         <p className="muted">
-          Upload a 2D sketch of your design or describe the jewelry design you want.
+          Start with a visual sketch or a written prompt to generate a ring concept.
         </p>
         <label className="upload-label">
-          <span>Upload 2D Sketch</span>
+          <span>Upload Sketch</span>
           <input
             type="file"
             accept="image/png,image/jpeg,image/webp"
@@ -68,7 +68,7 @@ export default function HomePage() {
           </div>
         ) : null}
         <label className="upload-label prompt-label">
-          <span>Prompt</span>
+          <span>Design Prompt</span>
           <textarea
             className="left-prompt-input"
             value={prompt}
@@ -79,10 +79,10 @@ export default function HomePage() {
         </label>
         <div className="left-panel-actions">
           <button className="left-generate-btn" onClick={triggerPromptGeneration} disabled={prompt.trim().length < 3}>
-            Generate Jewelry
+            Generate Ring
           </button>
         </div>
-        <p className="muted">After generation, use the right panel to tweak components and apply change prompts.</p>
+        <p className="muted">After generation, refine details from the customization panel and export your final design.</p>
       </aside>
 
       <section className="viewer viewer-canvas-only">

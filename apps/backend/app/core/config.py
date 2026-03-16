@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     grounding_dino_box_threshold: float = 0.25
     grounding_dino_text_threshold: float = 0.25
     grounding_dino_local_files_only: bool = True
+    component_placement_debug: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",
