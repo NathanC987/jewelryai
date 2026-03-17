@@ -17,6 +17,9 @@ type ViewerCanvasProps = {
   } | null;
   ringSummary: {
     estimatedPriceUsd: number;
+    pricingSource: "live" | "cached" | "baseline";
+    ratesTimestampUtc: string | null;
+    ratesAgeSeconds: number | null;
     manufacturabilityWarnings: { code: string; message: string }[];
   } | null;
 };
@@ -864,6 +867,17 @@ export function ViewerCanvas({ modelUrl, ringParameters, ringSummary }: ViewerCa
     });
   }, [ringParameters]);
 
+  const pricingStatusLabel = ringSummary
+    ? ringSummary.pricingSource === "live"
+      ? "Live Rates"
+      : ringSummary.pricingSource === "cached"
+        ? "Cached Rates"
+        : "Baseline Rates"
+    : null;
+  const pricingUpdatedLabel = ringSummary?.ratesTimestampUtc
+    ? new Date(ringSummary.ratesTimestampUtc).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : null;
+
   return (
     <div className="viewer-canvas-shell">
       <div className="viewer-canvas" ref={mountRef} />
@@ -872,6 +886,8 @@ export function ViewerCanvas({ modelUrl, ringParameters, ringSummary }: ViewerCa
           <div className="viewer-overlay viewer-overlay-price">
             <span className="viewer-overlay-label">Estimated Price</span>
             <strong>${ringSummary.estimatedPriceUsd.toFixed(2)}</strong>
+            {pricingStatusLabel ? <span className="viewer-overlay-meta">{pricingStatusLabel}</span> : null}
+            {pricingUpdatedLabel ? <span className="viewer-overlay-meta">Updated {pricingUpdatedLabel}</span> : null}
           </div>
           {ringSummary.manufacturabilityWarnings.length > 0 ? (
             <div className="viewer-overlay viewer-overlay-warnings" role="status" aria-live="polite">

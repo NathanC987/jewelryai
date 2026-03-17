@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -8,6 +9,10 @@ from app.domain.sketch import (
     SketchUploadResponse,
 )
 from app.core.config import settings
+from app.services.sketch_component_resolver import (
+    SketchComponentResolver,
+    create_sketch_component_resolver,
+)
 from app.services.sketch_analysis import create_sketch_analyzer
 from app.services.sketch_analysis.base import SketchAnalyzer
 
@@ -20,8 +25,10 @@ class SketchService:
     def __init__(
         self,
         analyzer: SketchAnalyzer | None = None,
+        component_resolver: SketchComponentResolver | None = None,
         analysis_backend: str | None = None,
     ) -> None:
+        self._logger = logging.getLogger("service.sketch")
         requested_backend = analysis_backend or settings.sketch_analysis_backend
         if analyzer is not None:
             self._analysis_backend = requested_backend
@@ -43,6 +50,17 @@ class SketchService:
             )
             self._analysis_backend = resolved_backend
             self._analyzer = resolved_analyzer
+        self._component_resolver = component_resolver or create_sketch_component_resolver(
+            settings.sketch_component_resolver_strategy
+        )
+        self._logger.info(
+            {
+                "operation": "sketch_service_init",
+                "analysis_backend": self._analysis_backend,
+                "resolver_strategy": settings.sketch_component_resolver_strategy,
+                "resolver_class": self._component_resolver.__class__.__name__,
+            }
+        )
         self._analysis_store: dict[str, SketchAnalysisResponse] = {}
 
     async def ingest_sketch(self, file: UploadFile) -> SketchUploadResponse:
@@ -58,14 +76,39 @@ class SketchService:
 
         artifact_uri = f"/artifacts/sketches/{sketch_id}{extension}"
         draft = self._analyzer.analyze(content)
+        self._logger.info(
+            {
+                "operation": "sketch_analysis_complete",
+                "sketch_id": sketch_id,
+                "analysis_backend": self._analysis_backend,
+                "resolver_strategy": settings.sketch_component_resolver_strategy,
+                "filename": file.filename,
+                "draft_parameters": draft.extracted_parameters.model_dump(),
+            }
+        )
+        resolution = self._component_resolver.resolve(file.filename, draft.extracted_parameters)
+
+        self._logger.info(
+            {
+                "operation": "sketch_component_resolution",
+                "status": "success",
+                "sketch_id": sketch_id,
+                "source": resolution.component_mapping.source,
+                "matched_filename": resolution.component_mapping.matched_filename,
+                "shank_component_id": resolution.component_mapping.shank_component_id,
+                "setting_component_id": resolution.component_mapping.setting_component_id,
+            }
+        )
+
         analysis = SketchAnalysisResponse(
             sketch_id=sketch_id,
             artifact_uri=artifact_uri,
             analysis_backend=self._analysis_backend,
             components=draft.components,
-            extracted_parameters=draft.extracted_parameters,
+            extracted_parameters=resolution.parameters,
             feature_confidences=draft.feature_confidences,
             requires_user_confirmation=draft.requires_user_confirmation,
+            component_mapping=resolution.component_mapping,
         )
         self._analysis_store[sketch_id] = analysis
 
@@ -74,8 +117,9 @@ class SketchService:
             artifact_uri=artifact_uri,
             analysis_uri=f"/api/v1/sketches/{sketch_id}/analysis",
             analysis_backend=self._analysis_backend,
-            extracted_parameters=draft.extracted_parameters,
+            extracted_parameters=resolution.parameters,
             extraction_note=draft.extraction_note,
+            component_mapping=resolution.component_mapping,
         )
 
     def get_analysis(self, sketch_id: str) -> SketchAnalysisResponse | None:

@@ -25,7 +25,11 @@ type RingState = {
   cost_estimate: {
     metal_weight_g: number;
     gemstone_carat: number;
+    side_stone_carat: number;
     estimated_price_usd: number;
+    pricing_source: "live" | "cached" | "baseline";
+    rates_timestamp_utc: string | null;
+    rates_age_seconds: number | null;
   };
   manufacturability_warnings: { code: string; message: string }[];
   glb_asset_uri: string;
@@ -35,6 +39,11 @@ type RingParameters = RingState["parameters"];
 
 type PromptRingResponse = {
   ring: RingState;
+};
+
+type GenerateEventDetail = {
+  prompt?: string;
+  sketchParameters?: Partial<RingParameters> | null;
 };
 
 const apiBase =
@@ -48,6 +57,9 @@ type RingWorkbenchProps = {
     summary:
       | {
           estimatedPriceUsd: number;
+          pricingSource: "live" | "cached" | "baseline";
+          ratesTimestampUtc: string | null;
+          ratesAgeSeconds: number | null;
           manufacturabilityWarnings: { code: string; message: string }[];
         }
       | null
@@ -122,7 +134,7 @@ export function RingWorkbench({
     }
   }
 
-  async function createRingFromPrompt() {
+  async function createRingFromPrompt(promptText: string) {
     setLoading(true);
     setLoadingIntent("generating");
     setError(null);
@@ -130,7 +142,7 @@ export function RingWorkbench({
       const response = await fetch(`${apiBase}/rings/from-prompt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt: promptText }),
       });
       if (!response.ok) {
         throw new Error(`Prompt generation failed: ${response.status}`);
@@ -139,6 +151,31 @@ export function RingWorkbench({
       const payload: PromptRingResponse = await response.json();
       setRing(payload.ring);
       await refreshViewerModel(payload.ring.ring_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+      setLoadingIntent(null);
+    }
+  }
+
+  async function createRingFromSketchParameters(parameters: Partial<RingParameters>) {
+    setLoading(true);
+    setLoadingIntent("generating");
+    setError(null);
+    try {
+      const response = await fetch(`${apiBase}/rings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parameters),
+      });
+      if (!response.ok) {
+        throw new Error(`Sketch-based generation failed: ${response.status}`);
+      }
+
+      const created = await response.json();
+      setRing(created);
+      await refreshViewerModel(created.ring_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -218,6 +255,9 @@ export function RingWorkbench({
       ring
         ? {
             estimatedPriceUsd: ring.cost_estimate.estimated_price_usd,
+            pricingSource: ring.cost_estimate.pricing_source,
+            ratesTimestampUtc: ring.cost_estimate.rates_timestamp_utc,
+            ratesAgeSeconds: ring.cost_estimate.rates_age_seconds,
             manufacturabilityWarnings: ring.manufacturability_warnings,
           }
         : null
@@ -225,8 +265,18 @@ export function RingWorkbench({
   }, [onRingSummaryChange, ring]);
 
   useEffect(() => {
-    const handler = () => {
-      void createRingFromPrompt();
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<GenerateEventDetail>).detail;
+      const eventPrompt = (detail?.prompt ?? "").trim();
+
+      if (eventPrompt.length >= 3) {
+        void createRingFromPrompt(eventPrompt);
+        return;
+      }
+
+      if (detail?.sketchParameters) {
+        void createRingFromSketchParameters(detail.sketchParameters);
+      }
     };
     window.addEventListener("ring-generate-from-prompt", handler);
     return () => window.removeEventListener("ring-generate-from-prompt", handler);
@@ -290,15 +340,15 @@ export function RingWorkbench({
         </div>
       ) : null}
 
+      {/* ── Quick Change ────────────────────────────────── */}
       <section className="change-prompt-card">
-        <h3>Quick Change Prompt</h3>
-        <p className="muted">Describe a design change in plain language and apply it to the current ring.</p>
+        <h3>Quick Change</h3>
         <label className="change-prompt-label">
           <textarea
             disabled={!canEdit || loading}
             value={changePrompt}
             onChange={(e) => setChangePrompt(e.target.value)}
-            rows={4}
+            rows={2}
             placeholder="e.g. switch to marquise bezel with cathedral shank"
           />
         </label>
@@ -306,14 +356,14 @@ export function RingWorkbench({
           disabled={!canEdit || loading || changePrompt.trim().length < 2}
           onClick={() => void applyChangePrompt()}
         >
-          Apply Change Prompt
+          Apply Change
         </button>
       </section>
 
+      {/* ── Prompt Studio (optional) ─────────────────────── */}
       {!hidePromptComposer ? (
         <section className="result">
           <h3>Prompt Studio</h3>
-          <p className="muted">Create a new ring directly from your design prompt.</p>
           <label>
             Design Prompt
             <input
@@ -324,50 +374,53 @@ export function RingWorkbench({
             />
           </label>
           <div className="export-row">
-            <button onClick={createRingFromPrompt} disabled={loading || safePrompt.trim().length < 3}>
-              {ring ? "Regenerate From Prompt" : "Generate From Prompt"}
+            <button
+              onClick={() => void createRingFromPrompt(safePrompt)}
+              disabled={loading || safePrompt.trim().length < 3}
+            >
+              {ring ? "Regenerate" : "Generate"}
             </button>
             <button onClick={createRing} disabled={loading}>
-              Create From Seeded Parameters
+              From Seed
             </button>
           </div>
         </section>
       ) : null}
 
+      {/* ── Core Style ───────────────────────────────────── */}
       <section className="workbench-group">
         <div className="group-header">
           <h3>Core Style</h3>
-          <p className="muted">Choose your metal, gemstone, and center stone silhouette.</p>
         </div>
         <div className="controls">
-          <label>
-            Metal
-            <select
-              disabled={!canEdit || loading}
-              value={ring?.parameters.metal ?? "gold"}
-              onChange={(e) => patchRing({ metal: e.target.value })}
-            >
-              <option value="gold">Gold</option>
-              <option value="rose_gold">Rose Gold</option>
-              <option value="platinum">Platinum</option>
-              <option value="silver">Silver</option>
-            </select>
-          </label>
-
-          <label>
-            Gemstone
-            <select
-              disabled={!canEdit || loading}
-              value={ring?.parameters.gemstone_type ?? "diamond"}
-              onChange={(e) => patchRing({ gemstone_type: e.target.value })}
-            >
-              <option value="diamond">Diamond</option>
-              <option value="ruby">Ruby</option>
-              <option value="emerald">Emerald</option>
-              <option value="sapphire">Sapphire</option>
-            </select>
-          </label>
-
+          <div className="controls-2col">
+            <label>
+              Metal
+              <select
+                disabled={!canEdit || loading}
+                value={ring?.parameters.metal ?? "gold"}
+                onChange={(e) => patchRing({ metal: e.target.value })}
+              >
+                <option value="gold">Gold</option>
+                <option value="rose_gold">Rose Gold</option>
+                <option value="platinum">Platinum</option>
+                <option value="silver">Silver</option>
+              </select>
+            </label>
+            <label>
+              Gemstone
+              <select
+                disabled={!canEdit || loading}
+                value={ring?.parameters.gemstone_type ?? "diamond"}
+                onChange={(e) => patchRing({ gemstone_type: e.target.value })}
+              >
+                <option value="diamond">Diamond</option>
+                <option value="ruby">Ruby</option>
+                <option value="emerald">Emerald</option>
+                <option value="sapphire">Sapphire</option>
+              </select>
+            </label>
+          </div>
           <label>
             Stone Shape
             <select
@@ -386,31 +439,46 @@ export function RingWorkbench({
         </div>
       </section>
 
+      {/* ── Setting & Structure ──────────────────────────── */}
       <section className="workbench-group">
         <div className="group-header">
-          <h3>Setting and Structure</h3>
-          <p className="muted">Refine architecture details for setting, shank, and profile.</p>
+          <h3>Setting &amp; Structure</h3>
         </div>
         <div className="controls">
+          <div className="controls-2col">
+            <label>
+              Setting
+              <select
+                disabled={!canEdit || loading}
+                value={ring?.parameters.setting_family ?? "peghead"}
+                onChange={(e) => patchRing({ setting_family: e.target.value })}
+              >
+                <option value="peghead">Peghead</option>
+                <option value="basket">Basket</option>
+                <option value="bezel">Bezel</option>
+                <option value="halo">Halo</option>
+                <option value="cluster">Cluster</option>
+              </select>
+            </label>
+            <label>
+              Open Heart
+              <select
+                disabled={!canEdit || loading}
+                value={ring?.parameters.setting_openheart ? "yes" : "no"}
+                onChange={(e) => patchRing({ setting_openheart: e.target.value === "yes" })}
+              >
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </label>
+          </div>
           <label>
-            Setting Family
-            <select
-              disabled={!canEdit || loading}
-              value={ring?.parameters.setting_family ?? "peghead"}
-              onChange={(e) => patchRing({ setting_family: e.target.value })}
-            >
-              <option value="peghead">Peghead</option>
-              <option value="basket">Basket</option>
-              <option value="bezel">Bezel</option>
-              <option value="halo">Halo</option>
-              <option value="cluster">Cluster</option>
-            </select>
-          </label>
-
-          <label>
-            Setting Variant
+            <div className="slider-header">
+              <span>Setting Variant</span>
+              <span className="slider-value">{ring?.parameters.setting_variant ?? 4}</span>
+            </div>
             <input
-              type="number"
+              type="range"
               min={1}
               max={20}
               step={1}
@@ -418,38 +486,41 @@ export function RingWorkbench({
               value={ring?.parameters.setting_variant ?? 4}
               onChange={(e) => patchRing({ setting_variant: Number.parseInt(e.target.value, 10) })}
             />
-            <span className="field-hint">Range: 1-20</span>
           </label>
-
+          <div className="controls-2col">
+            <label>
+              Shank
+              <select
+                disabled={!canEdit || loading}
+                value={ring?.parameters.shank_family ?? "classic"}
+                onChange={(e) => patchRing({ shank_family: e.target.value })}
+              >
+                <option value="classic">Classic</option>
+                <option value="cathedral">Cathedral</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </label>
+            <label>
+              Band Profile
+              <select
+                disabled={!canEdit || loading}
+                value={ring?.parameters.band_profile ?? "classic"}
+                onChange={(e) => patchRing({ band_profile: e.target.value })}
+              >
+                <option value="classic">Classic</option>
+                <option value="flat">Flat</option>
+                <option value="knife_edge">Knife Edge</option>
+                <option value="tapered">Tapered</option>
+              </select>
+            </label>
+          </div>
           <label>
-            Open Heart
-            <select
-              disabled={!canEdit || loading}
-              value={ring?.parameters.setting_openheart ? "yes" : "no"}
-              onChange={(e) => patchRing({ setting_openheart: e.target.value === "yes" })}
-            >
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </label>
-
-          <label>
-            Shank Family
-            <select
-              disabled={!canEdit || loading}
-              value={ring?.parameters.shank_family ?? "classic"}
-              onChange={(e) => patchRing({ shank_family: e.target.value })}
-            >
-              <option value="classic">Classic</option>
-              <option value="cathedral">Cathedral</option>
-              <option value="advanced">Advanced</option>
-            </select>
-          </label>
-
-          <label>
-            Shank Variant
+            <div className="slider-header">
+              <span>Shank Variant</span>
+              <span className="slider-value">{ring?.parameters.shank_variant ?? 1}</span>
+            </div>
             <input
-              type="number"
+              type="range"
               min={1}
               max={20}
               step={1}
@@ -457,103 +528,92 @@ export function RingWorkbench({
               value={ring?.parameters.shank_variant ?? 1}
               onChange={(e) => patchRing({ shank_variant: Number.parseInt(e.target.value, 10) })}
             />
-            <span className="field-hint">Range: 1-20</span>
-          </label>
-
-          <label>
-            Band Profile
-            <select
-              disabled={!canEdit || loading}
-              value={ring?.parameters.band_profile ?? "classic"}
-              onChange={(e) => patchRing({ band_profile: e.target.value })}
-            >
-              <option value="classic">Classic</option>
-              <option value="flat">Flat</option>
-              <option value="knife_edge">Knife Edge</option>
-              <option value="tapered">Tapered</option>
-            </select>
           </label>
         </div>
       </section>
 
+      {/* ── Dimensions ───────────────────────────────────── */}
       <section className="workbench-group">
         <div className="group-header">
           <h3>Dimensions</h3>
-          <p className="muted">Adjust measurable proportions used in manufacturing output.</p>
         </div>
         <div className="controls">
+          <div className="controls-2col">
+            <label>
+              <div className="slider-header">
+                <span>Prongs</span>
+                <span className="slider-value">{ring?.parameters.prong_count ?? 4}</span>
+              </div>
+              <input
+                type="range"
+                min={2}
+                max={8}
+                step={1}
+                disabled={!canEdit || loading}
+                value={ring?.parameters.prong_count ?? 4}
+                onChange={(e) => patchRing({ prong_count: Number.parseInt(e.target.value, 10) })}
+              />
+            </label>
+            <label>
+              <div className="slider-header">
+                <span>Side Stones</span>
+                <span className="slider-value">{ring?.parameters.side_stone_count ?? 0}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={24}
+                step={1}
+                disabled={!canEdit || loading}
+                value={ring?.parameters.side_stone_count ?? 0}
+                onChange={(e) => patchRing({ side_stone_count: Number.parseInt(e.target.value, 10) })}
+              />
+            </label>
+          </div>
           <label>
-            Prong Count
+            <div className="slider-header">
+              <span>Setting Height</span>
+              <span className="slider-value">{(ring?.parameters.setting_height_mm ?? 1.8).toFixed(1)} mm</span>
+            </div>
             <input
-              type="number"
-              min={2}
-              max={8}
-              step={1}
-              disabled={!canEdit || loading}
-              value={ring?.parameters.prong_count ?? 4}
-              onChange={(e) => patchRing({ prong_count: Number.parseInt(e.target.value, 10) })}
-            />
-            <span className="field-hint">Range: 2-8</span>
-          </label>
-
-          <label>
-            Side Stone Count
-            <input
-              type="number"
-              min={0}
-              max={24}
-              step={1}
-              disabled={!canEdit || loading}
-              value={ring?.parameters.side_stone_count ?? 0}
-              onChange={(e) => patchRing({ side_stone_count: Number.parseInt(e.target.value, 10) })}
-            />
-            <span className="field-hint">Range: 0-24</span>
-          </label>
-
-          <label>
-            Setting Height (mm)
-            <input
-              type="number"
+              type="range"
               min={0.6}
-              max={5}
+              max={5.0}
               step={0.1}
               disabled={!canEdit || loading}
               value={ring?.parameters.setting_height_mm ?? 1.8}
               onChange={(e) => patchRing({ setting_height_mm: Number.parseFloat(e.target.value) })}
             />
-            <span className="field-hint">Range: 0.6-5.0 mm</span>
           </label>
-
           <label>
-            Gem Size (mm)
+            <div className="slider-header">
+              <span>Gem Size</span>
+              <span className="slider-value">{(ring?.parameters.gemstone_size_mm ?? 4.0).toFixed(1)} mm</span>
+            </div>
             <input
-              type="number"
-              min={1}
-              max={12}
+              type="range"
+              min={1.0}
+              max={12.0}
               step={0.1}
               disabled={!canEdit || loading}
-              value={ring?.parameters.gemstone_size_mm ?? 4}
-              onChange={(e) =>
-                patchRing({ gemstone_size_mm: Number.parseFloat(e.target.value) })
-              }
+              value={ring?.parameters.gemstone_size_mm ?? 4.0}
+              onChange={(e) => patchRing({ gemstone_size_mm: Number.parseFloat(e.target.value) })}
             />
-            <span className="field-hint">Range: 1.0-12.0 mm</span>
           </label>
-
           <label>
-            Band Thickness (mm)
+            <div className="slider-header">
+              <span>Band Thickness</span>
+              <span className="slider-value">{(ring?.parameters.band_thickness_mm ?? 2.0).toFixed(1)} mm</span>
+            </div>
             <input
-              type="number"
+              type="range"
               min={1.2}
-              max={5}
+              max={5.0}
               step={0.1}
               disabled={!canEdit || loading}
-              value={ring?.parameters.band_thickness_mm ?? 2}
-              onChange={(e) =>
-                patchRing({ band_thickness_mm: Number.parseFloat(e.target.value) })
-              }
+              value={ring?.parameters.band_thickness_mm ?? 2.0}
+              onChange={(e) => patchRing({ band_thickness_mm: Number.parseFloat(e.target.value) })}
             />
-            <span className="field-hint">Range: 1.2-5.0 mm</span>
           </label>
         </div>
       </section>
@@ -565,17 +625,21 @@ export function RingWorkbench({
         </div>
       ) : null}
 
+      {/* ── Export ───────────────────────────────────────── */}
       {ring ? (
         <div className="export-section">
-          <p><strong>Exports</strong></p>
-          <p className="muted">Download high-fidelity files for viewing and production.</p>
-          <div className="export-row export-row-vertical">
-            <button disabled={!canEdit || loading} onClick={() => exportAndDownload("glb")}>Export GLB</button>
-            <button disabled={!canEdit || loading} onClick={() => exportAndDownload("stl")}>Export STL</button>
+          <p><strong>Export</strong></p>
+          <div className="export-row">
+            <button disabled={!canEdit || loading} onClick={() => void exportAndDownload("glb")}>
+              Export GLB
+            </button>
+            <button disabled={!canEdit || loading} onClick={() => void exportAndDownload("stl")}>
+              Export STL
+            </button>
           </div>
         </div>
       ) : (
-        <p className="muted">Create a jewelry to enable customization.</p>
+        <p className="muted">Generate a ring design to begin customizing.</p>
       )}
     </div>
   );

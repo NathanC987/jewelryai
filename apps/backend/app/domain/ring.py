@@ -89,10 +89,23 @@ class RingUpdateDiff(BaseModel):
     to_version: int
 
 
+class CostLineItem(BaseModel):
+    label: str
+    quantity: float
+    unit: str
+    unit_price_usd: float
+    subtotal_usd: float
+
+
 class CostEstimate(BaseModel):
     metal_weight_g: float
     gemstone_carat: float
+    side_stone_carat: float = 0.0
     estimated_price_usd: float
+    pricing_source: Literal["live", "cached", "baseline"] = "baseline"
+    rates_timestamp_utc: str | None = None
+    rates_age_seconds: int | None = None
+    line_items: list[CostLineItem] = Field(default_factory=list)
 
 
 class ManufacturabilityWarning(BaseModel):

@@ -15,6 +15,7 @@ from app.domain.ring import (
     RingUpdateDiff,
     RingUpdateRequest,
 )
+from app.services.pricing_service import pricing_service
 
 
 class RingService:
@@ -232,42 +233,7 @@ class RingService:
         last_update_diff: RingUpdateDiff | None = None,
     ) -> RingStateResponse:
         params = graph.parameters
-        metal_weight_g = round(3.2 + params.band_thickness_mm * 0.65, 2)
-        gemstone_carat = round((params.gemstone_size_mm ** 3) * 0.0045, 2)
-
-        metal_rate = {
-            "gold": 85,
-            "rose_gold": 88,
-            "platinum": 65,
-            "silver": 2,
-        }[params.metal]
-
-        gemstone_rate = {
-            "diamond": 1200,
-            "ruby": 650,
-            "emerald": 550,
-            "sapphire": 500,
-        }[params.gemstone_type]
-
-        side_stone_carat = round(max(0.0, params.side_stone_count * params.gemstone_size_mm * 0.0035), 3)
-        shank_cost_multiplier = {
-            "classic": 1.0,
-            "cathedral": 1.08,
-            "advanced": 1.15,
-        }[params.shank_family]
-        setting_cost_multiplier = {
-            "peghead": 1.0,
-            "basket": 1.04,
-            "bezel": 1.06,
-            "halo": 1.1,
-            "cluster": 1.12,
-        }[params.setting_family]
-        estimated_price = round(
-            metal_weight_g * metal_rate * shank_cost_multiplier
-            + gemstone_carat * gemstone_rate
-            + side_stone_carat * gemstone_rate * 0.45 * setting_cost_multiplier,
-            2,
-        )
+        cost_estimate = pricing_service.estimate_cost(params)
 
         warnings: list[ManufacturabilityWarning] = []
         if params.band_thickness_mm < 1.6:
@@ -296,11 +262,7 @@ class RingService:
             ring_id=graph.ring_id,
             parameters=params,
             graph_version=graph.version,
-            cost_estimate=CostEstimate(
-                metal_weight_g=metal_weight_g,
-                gemstone_carat=gemstone_carat,
-                estimated_price_usd=estimated_price,
-            ),
+            cost_estimate=CostEstimate(**cost_estimate.model_dump()),
             manufacturability_warnings=warnings,
             last_update_diff=last_update_diff,
             glb_asset_uri=f"/artifacts/{graph.ring_id}/model.glb",
